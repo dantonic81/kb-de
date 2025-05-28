@@ -1,0 +1,11 @@
+patient_email,biometric_type,value,unit,timestamp
+alice.johnson@example.com,glucose,110,mg/dL,2024-12-01T08:00:00
+alice.johnson@example.com,weight,65,kg,2024-12-01T08:00:00
+bob.smith@example.com,blood_pressure,120/80,mmHg,2024-12-01T08:00:00
+carla.diaz@example.com,glucose,95,mg/dL,2024-12-01T08:00:00
+carla.diaz@example.com,weight,58,kg,2024-12-01T08:00:00
+david.lee@example.com,glucose,130,mg/dL,2024-12-01T08:00:00
+david.lee@example.com,blood_pressure,140/90,mmHg,2024-12-01T08:00:00
+ellen.wright@example.com,weight,70,kg,2024-12-01T08:00:00
+ellen.wright@example.com,glucose,105,mg/dL,2024-12-01T08:00:00
+bob.smith@example.com,weight,80,kg,2024-12-01T08:00:00

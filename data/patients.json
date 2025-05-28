@@ -1,0 +1,47 @@
+[
+  {
+    "name": "Alice Johnson",
+    "dob": "1985-04-12",
+    "gender": "female",
+    "address": "123 Elm Street, Springfield",
+    "email": "alice.johnson@example.com",
+    "phone": "555-1234",
+    "sex": "F"
+  },
+  {
+    "name": "Bob Smith",
+    "dob": "1978-08-23",
+    "gender": "male",
+    "address": "456 Oak Avenue, Springfield",
+    "email": "bob.smith@example.com",
+    "phone": "555-5678",
+    "sex": "M"
+  },
+  {
+    "name": "Carla Diaz",
+    "dob": "1990-11-05",
+    "gender": "female",
+    "address": "789 Pine Road, Springfield",
+    "email": "carla.diaz@example.com",
+    "phone": "555-9876",
+    "sex": "F"
+  },
+  {
+    "name": "David Lee",
+    "dob": "1982-01-15",
+    "gender": "male",
+    "address": "321 Birch Blvd, Springfield",
+    "email": "david.lee@example.com",
+    "phone": "555-2345",
+    "sex": "M"
+  },
+  {
+    "name": "Ellen Wright",
+    "dob": "1995-09-30",
+    "gender": "female",
+    "address": "654 Cedar Street, Springfield",
+    "email": "ellen.wright@example.com",
+    "phone": "555-6789",
+    "sex": "F"
+  }
+]

@@ -1,10 +1,12 @@
 import pandas as pd
 import logging
-from datetime import datetime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import create_engine
 from app.db.models import Patient, Biometric
 import os
+from app.schemas.patient_schema import PatientSchema
+from app.schemas.biometric_schema import BiometricSchema
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,6 +25,13 @@ def load_patients(json_file='data/patients.json'):
         df = pd.read_json(json_file)
     except Exception as e:
         logger.error(f"Failed to load patient JSON: {e}")
+        return
+
+    # Validate using Pandera
+    try:
+        df = PatientSchema.validate(df)
+    except Exception as e:
+        logger.error(f"Patient data validation failed:\n{e}")
         return
 
     df = df.dropna(subset=["name", "dob"])
@@ -51,7 +60,6 @@ def load_patients(json_file='data/patients.json'):
     session.commit()
     logger.info("Patients loaded successfully")
 
-
 def load_biometrics(csv_file='data/biometrics.csv'):
     try:
         df = pd.read_csv(csv_file)
@@ -59,8 +67,22 @@ def load_biometrics(csv_file='data/biometrics.csv'):
         logger.error(f"Failed to load biometrics CSV: {e}")
         return
 
+    # Basic cleanup before validation
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors='coerce')
     df = df.dropna(subset=["patient_email", "biometric_type", "unit", "timestamp", "value"])
+
+    # Reformat timestamp back to ISO string to match schema expectations
+    df["timestamp"] = df["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Validate using Pandera
+    try:
+        df = BiometricSchema.validate(df)
+    except Exception as e:
+        logger.error(f"Biometric data validation failed:\n{e}")
+        return
+
+    # Convert timestamp back to datetime for DB use
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
 
     for _, row in df.iterrows():
         try:

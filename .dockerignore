@@ -1,0 +1,17 @@
+# .dockerignore
+
+# Exclude sensitive files
+.env
+.env.example
+tests/
+.conftest
+README.md
+__pycache__
+.git
+.gitignore
+.coverage
+.flake8
+.idea
+.venv
+.pytest_cache
+test_*

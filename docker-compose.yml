@@ -11,6 +11,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   pgadmin:
     image: dpage/pgadmin4
@@ -21,9 +26,49 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+    healthcheck:
+      test: [ "CMD-SHELL", "nc -z -w 1 localhost 80 >/dev/null && echo 'Connection successful' || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  migrate:
+    build: .
+    container_name: migrate
+    command: alembic upgrade head
+    env_file:
+      - .env
+    depends_on:
+      - db
+    restart: "no"
+
+  etl:
+    build: .
+    container_name: etl
+    command: python run_etl.py
+    env_file:
+      - .env
+    depends_on:
+      - migrate
+      - db
+    restart: unless-stopped
+
+  api:
+    build: .
+    container_name: api
+    command: ["/entrypoint.sh"]
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
 
 volumes:
   postgres_data:

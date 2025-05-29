@@ -40,21 +40,28 @@ services:
     build: .
     container_name: migrate
     command: alembic upgrade head
+    entrypoint: "" # disable the inherited /entrypoint.sh
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: "no"
 
   etl:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.etl
     container_name: etl
-    command: python run_etl.py
+    environment:
+      - PYTHONPATH=/app
     env_file:
       - .env
     depends_on:
-      - migrate
-      - db
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   api:
@@ -66,6 +73,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     restart: unless-stopped

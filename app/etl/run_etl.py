@@ -69,6 +69,20 @@ def load_biometrics(csv_file='data/biometrics.csv'):
                         systolic_str, diastolic_str = row["value"].split("/")
                         systolic = int(systolic_str)
                         diastolic = int(diastolic_str)
+
+                        # Check for duplicate BP record
+                        exists = session.query(Biometric).filter_by(
+                            patient_id=patient.id,
+                            biometric_type=biometric_type,
+                            systolic=systolic,
+                            diastolic=diastolic,
+                            unit=unit,
+                            timestamp=timestamp
+                        ).first()
+                        if exists:
+                            logger.info(f"Duplicate blood pressure record found, skipping: {row}")
+                            continue
+
                         biometric = Biometric(
                             patient_id=patient.id,
                             biometric_type=biometric_type,
@@ -81,8 +95,20 @@ def load_biometrics(csv_file='data/biometrics.csv'):
                         logger.error(f"Value error in blood pressure row {row}: {bp_error}")
                         continue
                 else:
-                    # Only attempt to convert to float here
                     value = float(row['value'])
+
+                    # Check for duplicate general biometric record
+                    exists = session.query(Biometric).filter_by(
+                        patient_id=patient.id,
+                        biometric_type=biometric_type,
+                        value=value,
+                        unit=unit,
+                        timestamp=timestamp
+                    ).first()
+                    if exists:
+                        logger.info(f"Duplicate biometric record found, skipping: {row}")
+                        continue
+
                     biometric = Biometric(
                         patient_id=patient.id,
                         biometric_type=biometric_type,
@@ -100,6 +126,7 @@ def load_biometrics(csv_file='data/biometrics.csv'):
 
         session.commit()
         logger.info("Biometrics loaded successfully")
+
 
 def main():
     load_patients()

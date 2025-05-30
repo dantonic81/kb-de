@@ -81,6 +81,22 @@ services:
       - "8000:8000"
     restart: unless-stopped
 
+  dagster:
+    build:
+      context: .
+      dockerfile: Dockerfile.dagster
+    container_name: dagster
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   pgadmin_data:

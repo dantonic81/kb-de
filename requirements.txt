@@ -7,3 +7,7 @@ pydantic==2.11.5
 python-dotenv==1.1.0
 SQLAlchemy==2.0.41
 uvicorn[standard]
+dagster
+dagster-webserver
+dagster-postgres
+dagit

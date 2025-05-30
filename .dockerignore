@@ -14,4 +14,7 @@ __pycache__
 .idea
 .venv
 .pytest_cache
-test_*
+test_
+etl_output/
+
+

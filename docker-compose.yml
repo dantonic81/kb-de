@@ -63,6 +63,8 @@ services:
       db:
         condition: service_healthy
     restart: no
+    volumes:
+      - ./etl_output:/app/rejected
 
   api:
     build: .

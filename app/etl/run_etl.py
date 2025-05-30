@@ -23,20 +23,38 @@ CHUNKSIZE = 1000
 
 
 def load_patients(json_file='data/patients.json'):
+    invalid_patient_rows = []
+    valid_rows = []
+
     try:
         df = pd.read_json(json_file)
-        df = PatientSchema.validate(df)
     except Exception as e:
-        logger.error(f"Error loading or validating patient data: {e}")
+        logger.error(f"Failed to load patient JSON: {e}")
         return
 
-    df = df.dropna(subset=["name", "dob"])
-    df["dob"] = pd.to_datetime(df["dob"]).dt.date
-    df = df.dropna(subset=["email"])
-
-    records = []
+    # Iterate over raw rows first, validate before conversion
     for _, row in df.iterrows():
-        records.append({
+        row_dict = row.dropna().to_dict()  # drop NaN keys like 'foo'
+        try:
+            PatientSchema.validate(pd.DataFrame([row_dict]))
+            valid_rows.append(row_dict)
+        except Exception as e:
+            logger.error(f"Patient row validation failed: {e} -- {row_dict}")
+            row_with_error = row_dict.copy()
+            row_with_error["validation_error"] = str(e)
+            invalid_patient_rows.append(row_with_error)
+
+    if not valid_rows:
+        logger.warning("No valid patient records to process.")
+        return
+
+    # Now safely convert dob to date for the valid rows only
+    df_valid = pd.DataFrame(valid_rows)
+    df_valid["dob"] = pd.to_datetime(df_valid["dob"], errors="coerce").dt.date
+    df_valid = df_valid.dropna(subset=["dob"])
+
+    records = [
+        {
             "email": row["email"],
             "name": row["name"],
             "dob": row["dob"],
@@ -44,7 +62,9 @@ def load_patients(json_file='data/patients.json'):
             "address": row.get("address"),
             "phone": row.get("phone"),
             "sex": row.get("sex")
-        })
+        }
+        for _, row in df_valid.iterrows()
+    ]
 
     stmt = pg_insert(Patient).values(records)
     stmt = stmt.on_conflict_do_update(
@@ -67,10 +87,25 @@ def load_patients(json_file='data/patients.json'):
         logger.error(f"Failed to upsert patients: {e}")
         session.rollback()
 
+    if invalid_patient_rows:
+        invalid_df = pd.DataFrame(invalid_patient_rows)
+        invalid_df.to_json("rejected/patients_invalid.json", orient="records", indent=2)
+        logger.info(f"Dumped {len(invalid_df)} invalid patient records to rejected/patients_invalid.json")
+
 
 def load_biometrics(csv_file='data/biometrics.csv'):
+    invalid_biometric_rows = []
+
+    csv_columns = ["patient_email", "biometric_type", "value", "unit", "timestamp"]
+    # Custom handler for bad lines:
+    def bad_line_handler(bad_line: list):
+        row_dict = {csv_columns[i] if i < len(csv_columns) else f"col_{i}": val for i, val in enumerate(bad_line)}
+        invalid_biometric_rows.append(row_dict)
+        logger.error(f"Malformed CSV row: {bad_line}")
+        return None
+
     try:
-        chunks = pd.read_csv(csv_file, chunksize=CHUNKSIZE)
+        chunks = pd.read_csv(csv_file, chunksize=CHUNKSIZE, on_bad_lines=bad_line_handler, engine='python')
     except Exception as e:
         logger.error(f"Failed to load biometrics CSV: {e}")
         return
@@ -81,14 +116,24 @@ def load_biometrics(csv_file='data/biometrics.csv'):
         chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], errors='coerce')
         chunk = chunk.dropna(subset=["patient_email", "biometric_type", "unit", "timestamp", "value"])
 
-        try:
-            chunk = BiometricSchema.validate(chunk)
-        except Exception as e:
-            logger.error(f"Validation failed:\n{e}")
+        valid_rows = []
+
+        for _, row in chunk.iterrows():
+            try:
+                BiometricSchema.validate(pd.DataFrame([row]))
+                valid_rows.append(row)
+            except Exception as e:
+                logger.error(f"Biometric row validation failed: {e} -- {row.to_dict()}")
+                row_with_error = row.copy()
+                row_with_error["validation_error"] = str(e)
+                invalid_biometric_rows.append(row_with_error)
+
+        if not valid_rows:
+            logger.info("No valid records to upsert for this chunk.")
             continue
 
-        chunk["timestamp"] = pd.to_datetime(chunk["timestamp"])
-        patient_emails = chunk["patient_email"].unique().tolist()
+        valid_chunk = pd.DataFrame(valid_rows)
+        patient_emails = valid_chunk["patient_email"].unique().tolist()
 
         patients = {
             p.email: p.id for p in session.query(Patient).filter(Patient.email.in_(patient_emails)).all()
@@ -96,9 +141,10 @@ def load_biometrics(csv_file='data/biometrics.csv'):
 
         records = []
 
-        for _, row in chunk.iterrows():
+        for _, row in valid_chunk.iterrows():
             patient_id = patients.get(row["patient_email"])
             if not patient_id:
+                logger.warning(f"No patient found for email: {row['patient_email']}")
                 continue
 
             biometric_type = row["biometric_type"]
@@ -139,6 +185,7 @@ def load_biometrics(csv_file='data/biometrics.csv'):
             records.append(record)
 
         if not records:
+            logger.info("No valid records to upsert for this chunk.")
             continue
 
         stmt = pg_insert(Biometric).values(records)
@@ -153,6 +200,11 @@ def load_biometrics(csv_file='data/biometrics.csv'):
         except Exception as e:
             logger.error(f"Failed to upsert biometrics: {e}")
             session.rollback()
+
+    if invalid_biometric_rows:
+        invalid_df = pd.DataFrame(invalid_biometric_rows)
+        invalid_df.to_csv("rejected/biometrics_invalid.csv", index=False)
+        logger.info(f"Dumped {len(invalid_df)} invalid biometric records to rejected/biometrics_invalid.csv")
 
 
 def main():

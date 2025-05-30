@@ -1,7 +1,7 @@
 import pandas as pd
 import logging
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, and_, or_
 from app.db.models import Patient, Biometric
 import os
 from app.schemas.patient_schema import PatientSchema
@@ -19,7 +19,7 @@ Session = sessionmaker(bind=engine)
 session = Session()
 
 USE_BULK_INSERT = True
-CHUNKSIZE = 1000  # Used only for biometrics
+CHUNKSIZE = 1000
 
 def bulk_insert_objects(objects, model_name=""):
     try:
@@ -39,34 +39,38 @@ def load_patients(json_file='data/patients.json'):
         return
 
     df = df.dropna(subset=["name", "dob"])
-    patient_objects = []
+    emails = df["email"].dropna().unique().tolist()
+
+    existing_patients = {
+        p.email: p for p in session.query(Patient).filter(Patient.email.in_(emails)).all()
+    }
+
+    new_patients = []
 
     for _, row in df.iterrows():
-        try:
-            dob = pd.to_datetime(row["dob"]).date()
-            patient = session.query(Patient).filter_by(email=row["email"]).first()
+        email = row.get("email")
+        if not email:
+            continue
 
-            if not patient:
-                patient = Patient()
+        dob = pd.to_datetime(row["dob"]).date()
+        patient = existing_patients.get(email)
 
-            patient.name = row["name"]
-            patient.dob = dob
-            patient.gender = row.get("gender")
-            patient.address = row.get("address")
-            patient.email = row.get("email")
-            patient.phone = row.get("phone")
-            patient.sex = row.get("sex")
+        if not patient:
+            patient = Patient(email=email)
+        patient.name = row["name"]
+        patient.dob = dob
+        patient.gender = row.get("gender")
+        patient.address = row.get("address")
+        patient.phone = row.get("phone")
+        patient.sex = row.get("sex")
 
-            if USE_BULK_INSERT:
-                patient_objects.append(patient)
-            else:
-                session.add(patient)
-
-        except Exception as e:
-            logger.error(f"Error processing patient row {row.to_dict()}: {e}")
+        if USE_BULK_INSERT:
+            new_patients.append(patient)
+        else:
+            session.merge(patient)  # merge avoids duplication
 
     if USE_BULK_INSERT:
-        bulk_insert_objects(patient_objects, "patients")
+        bulk_insert_objects(new_patients, "patients")
     else:
         session.commit()
         logger.info("Patients inserted individually")
@@ -79,7 +83,8 @@ def load_biometrics(csv_file='data/biometrics.csv'):
         return
 
     for chunk in chunks:
-        logger.info(f"Processing new biometric chunk ({len(chunk)} rows)")
+        logger.info(f"Processing biometric chunk ({len(chunk)} rows)")
+
         chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], errors='coerce')
         chunk = chunk.dropna(subset=["patient_email", "biometric_type", "unit", "timestamp", "value"])
         chunk["timestamp"] = chunk["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S")
@@ -87,86 +92,130 @@ def load_biometrics(csv_file='data/biometrics.csv'):
         try:
             chunk = BiometricSchema.validate(chunk)
         except Exception as e:
-            logger.error(f"Biometric data validation failed:\n{e}")
+            logger.error(f"Validation failed:\n{e}")
             continue
 
         chunk["timestamp"] = pd.to_datetime(chunk["timestamp"])
-        biometrics = []
+
+        patient_emails = chunk["patient_email"].unique().tolist()
+        patients = {
+            p.email: p.id for p in session.query(Patient).filter(Patient.email.in_(patient_emails)).all()
+        }
+
+        # Build composite keys from chunk
+        keys = []
+        for _, row in chunk.iterrows():
+            patient_id = patients.get(row["patient_email"])
+            if not patient_id:
+                continue
+            if row["biometric_type"] == "blood_pressure":
+                try:
+                    systolic, diastolic = map(int, row["value"].split("/"))
+                    keys.append((
+                        patient_id,
+                        row["biometric_type"],
+                        systolic,
+                        diastolic,
+                        None,
+                        row["unit"],
+                        row["timestamp"]
+                    ))
+                except:
+                    continue
+            else:
+                keys.append((
+                    patient_id,
+                    row["biometric_type"],
+                    None,
+                    None,
+                    float(row["value"]),
+                    row["unit"],
+                    row["timestamp"]
+                ))
+
+        # Fetch duplicates in one query
+        conditions = []
+        for k in keys:
+            cond = and_(
+                Biometric.patient_id == k[0],
+                Biometric.biometric_type == k[1],
+                Biometric.systolic == k[2],
+                Biometric.diastolic == k[3],
+                Biometric.value == k[4],
+                Biometric.unit == k[5],
+                Biometric.timestamp == k[6],
+            )
+            conditions.append(cond)
+
+        existing = set()
+        if conditions:
+            existing = {
+                (
+                    b.patient_id,
+                    b.biometric_type,
+                    b.systolic,
+                    b.diastolic,
+                    b.value,
+                    b.unit,
+                    b.timestamp
+                )
+                for b in session.query(Biometric).filter(or_(*conditions)).all()
+            }
+
+        new_biometrics = []
 
         for _, row in chunk.iterrows():
-            try:
-                patient = session.query(Patient).filter_by(email=row["patient_email"]).first()
-                if not patient:
-                    logger.warning(f"Patient not found: {row['patient_email']}, skipping")
-                    continue
+            patient_id = patients.get(row["patient_email"])
+            if not patient_id:
+                continue
 
-                biometric_type = row["biometric_type"]
-                unit = row["unit"]
-                timestamp = row["timestamp"]
+            biometric_type = row["biometric_type"]
+            unit = row["unit"]
+            timestamp = row["timestamp"]
 
-                if biometric_type == "blood_pressure":
-                    try:
-                        systolic_str, diastolic_str = row["value"].split("/")
-                        systolic = int(systolic_str)
-                        diastolic = int(diastolic_str)
-
-                        exists = session.query(Biometric).filter_by(
-                            patient_id=patient.id,
-                            biometric_type=biometric_type,
-                            systolic=systolic,
-                            diastolic=diastolic,
-                            unit=unit,
-                            timestamp=timestamp
-                        ).first()
-                        if exists:
-                            continue
-
-                        biometric = Biometric(
-                            patient_id=patient.id,
-                            biometric_type=biometric_type,
-                            systolic=systolic,
-                            diastolic=diastolic,
-                            unit=unit,
-                            timestamp=timestamp
-                        )
-                    except Exception as e:
-                        logger.error(f"Invalid BP value in row {row.to_dict()}: {e}")
+            if biometric_type == "blood_pressure":
+                try:
+                    systolic, diastolic = map(int, row["value"].split("/"))
+                    key = (patient_id, biometric_type, systolic, diastolic, None, unit, timestamp)
+                    if key in existing:
                         continue
-
-                else:
-                    value = float(row["value"])
-
-                    exists = session.query(Biometric).filter_by(
-                        patient_id=patient.id,
+                    biometric = Biometric(
+                        patient_id=patient_id,
                         biometric_type=biometric_type,
-                        value=value,
+                        systolic=systolic,
+                        diastolic=diastolic,
                         unit=unit,
                         timestamp=timestamp
-                    ).first()
-                    if exists:
+                    )
+                except Exception as e:
+                    logger.error(f"Invalid BP value: {row['value']} – {e}")
+                    continue
+            else:
+                try:
+                    value = float(row["value"])
+                    key = (patient_id, biometric_type, None, None, value, unit, timestamp)
+                    if key in existing:
                         continue
-
                     biometric = Biometric(
-                        patient_id=patient.id,
+                        patient_id=patient_id,
                         biometric_type=biometric_type,
                         value=value,
                         unit=unit,
                         timestamp=timestamp
                     )
+                except Exception as e:
+                    logger.error(f"Invalid value: {row['value']} – {e}")
+                    continue
 
-                if USE_BULK_INSERT:
-                    biometrics.append(biometric)
-                else:
-                    session.add(biometric)
-
-            except Exception as e:
-                logger.error(f"Error processing biometric row {row.to_dict()}: {e}")
+            new_biometrics.append(biometric)
 
         if USE_BULK_INSERT:
-            bulk_insert_objects(biometrics, "biometrics")
+            bulk_insert_objects(new_biometrics, "biometrics")
         else:
+            for b in new_biometrics:
+                session.add(b)
             session.commit()
-            logger.info("Biometrics chunk inserted individually")
+            logger.info("Inserted biometric chunk")
 
 def main():
     load_patients()

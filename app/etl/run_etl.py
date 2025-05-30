@@ -1,9 +1,10 @@
-import pandas as pd
-import logging
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, and_, or_
-from app.db.models import Patient, Biometric
 import os
+import logging
+import pandas as pd
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from app.db.models import Patient, Biometric
 from app.schemas.patient_schema import PatientSchema
 from app.schemas.biometric_schema import BiometricSchema
 
@@ -18,17 +19,8 @@ engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 session = Session()
 
-USE_BULK_INSERT = True
 CHUNKSIZE = 1000
 
-def bulk_insert_objects(objects, model_name=""):
-    try:
-        session.bulk_save_objects(objects)
-        session.commit()
-        logger.info(f"Bulk inserted {len(objects)} {model_name}")
-    except Exception as e:
-        logger.error(f"Bulk insert failed for {model_name}: {e}")
-        session.rollback()
 
 def load_patients(json_file='data/patients.json'):
     try:
@@ -39,41 +31,42 @@ def load_patients(json_file='data/patients.json'):
         return
 
     df = df.dropna(subset=["name", "dob"])
-    emails = df["email"].dropna().unique().tolist()
+    df["dob"] = pd.to_datetime(df["dob"]).dt.date
+    df = df.dropna(subset=["email"])
 
-    existing_patients = {
-        p.email: p for p in session.query(Patient).filter(Patient.email.in_(emails)).all()
-    }
-
-    new_patients = []
-
+    records = []
     for _, row in df.iterrows():
-        email = row.get("email")
-        if not email:
-            continue
+        records.append({
+            "email": row["email"],
+            "name": row["name"],
+            "dob": row["dob"],
+            "gender": row.get("gender"),
+            "address": row.get("address"),
+            "phone": row.get("phone"),
+            "sex": row.get("sex")
+        })
 
-        dob = pd.to_datetime(row["dob"]).date()
-        patient = existing_patients.get(email)
+    stmt = pg_insert(Patient).values(records)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["email"],
+        set_={
+            "name": stmt.excluded.name,
+            "dob": stmt.excluded.dob,
+            "gender": stmt.excluded.gender,
+            "address": stmt.excluded.address,
+            "phone": stmt.excluded.phone,
+            "sex": stmt.excluded.sex
+        }
+    )
 
-        if not patient:
-            patient = Patient(email=email)
-        patient.name = row["name"]
-        patient.dob = dob
-        patient.gender = row.get("gender")
-        patient.address = row.get("address")
-        patient.phone = row.get("phone")
-        patient.sex = row.get("sex")
-
-        if USE_BULK_INSERT:
-            new_patients.append(patient)
-        else:
-            session.merge(patient)  # merge avoids duplication
-
-    if USE_BULK_INSERT:
-        bulk_insert_objects(new_patients, "patients")
-    else:
+    try:
+        session.execute(stmt)
         session.commit()
-        logger.info("Patients inserted individually")
+        logger.info(f"Upserted {len(records)} patients")
+    except Exception as e:
+        logger.error(f"Failed to upsert patients: {e}")
+        session.rollback()
+
 
 def load_biometrics(csv_file='data/biometrics.csv'):
     try:
@@ -87,7 +80,6 @@ def load_biometrics(csv_file='data/biometrics.csv'):
 
         chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], errors='coerce')
         chunk = chunk.dropna(subset=["patient_email", "biometric_type", "unit", "timestamp", "value"])
-        chunk["timestamp"] = chunk["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S")
 
         try:
             chunk = BiometricSchema.validate(chunk)
@@ -96,73 +88,13 @@ def load_biometrics(csv_file='data/biometrics.csv'):
             continue
 
         chunk["timestamp"] = pd.to_datetime(chunk["timestamp"])
-
         patient_emails = chunk["patient_email"].unique().tolist()
+
         patients = {
             p.email: p.id for p in session.query(Patient).filter(Patient.email.in_(patient_emails)).all()
         }
 
-        # Build composite keys from chunk
-        keys = []
-        for _, row in chunk.iterrows():
-            patient_id = patients.get(row["patient_email"])
-            if not patient_id:
-                continue
-            if row["biometric_type"] == "blood_pressure":
-                try:
-                    systolic, diastolic = map(int, row["value"].split("/"))
-                    keys.append((
-                        patient_id,
-                        row["biometric_type"],
-                        systolic,
-                        diastolic,
-                        None,
-                        row["unit"],
-                        row["timestamp"]
-                    ))
-                except:
-                    continue
-            else:
-                keys.append((
-                    patient_id,
-                    row["biometric_type"],
-                    None,
-                    None,
-                    float(row["value"]),
-                    row["unit"],
-                    row["timestamp"]
-                ))
-
-        # Fetch duplicates in one query
-        conditions = []
-        for k in keys:
-            cond = and_(
-                Biometric.patient_id == k[0],
-                Biometric.biometric_type == k[1],
-                Biometric.systolic == k[2],
-                Biometric.diastolic == k[3],
-                Biometric.value == k[4],
-                Biometric.unit == k[5],
-                Biometric.timestamp == k[6],
-            )
-            conditions.append(cond)
-
-        existing = set()
-        if conditions:
-            existing = {
-                (
-                    b.patient_id,
-                    b.biometric_type,
-                    b.systolic,
-                    b.diastolic,
-                    b.value,
-                    b.unit,
-                    b.timestamp
-                )
-                for b in session.query(Biometric).filter(or_(*conditions)).all()
-            }
-
-        new_biometrics = []
+        records = []
 
         for _, row in chunk.iterrows():
             patient_id = patients.get(row["patient_email"])
@@ -176,50 +108,57 @@ def load_biometrics(csv_file='data/biometrics.csv'):
             if biometric_type == "blood_pressure":
                 try:
                     systolic, diastolic = map(int, row["value"].split("/"))
-                    key = (patient_id, biometric_type, systolic, diastolic, None, unit, timestamp)
-                    if key in existing:
-                        continue
-                    biometric = Biometric(
-                        patient_id=patient_id,
-                        biometric_type=biometric_type,
-                        systolic=systolic,
-                        diastolic=diastolic,
-                        unit=unit,
-                        timestamp=timestamp
-                    )
+                    record = {
+                        "patient_id": patient_id,
+                        "biometric_type": biometric_type,
+                        "systolic": systolic,
+                        "diastolic": diastolic,
+                        "value": None,
+                        "unit": unit,
+                        "timestamp": timestamp
+                    }
                 except Exception as e:
                     logger.error(f"Invalid BP value: {row['value']} – {e}")
                     continue
             else:
                 try:
                     value = float(row["value"])
-                    key = (patient_id, biometric_type, None, None, value, unit, timestamp)
-                    if key in existing:
-                        continue
-                    biometric = Biometric(
-                        patient_id=patient_id,
-                        biometric_type=biometric_type,
-                        value=value,
-                        unit=unit,
-                        timestamp=timestamp
-                    )
+                    record = {
+                        "patient_id": patient_id,
+                        "biometric_type": biometric_type,
+                        "systolic": None,
+                        "diastolic": None,
+                        "value": value,
+                        "unit": unit,
+                        "timestamp": timestamp
+                    }
                 except Exception as e:
                     logger.error(f"Invalid value: {row['value']} – {e}")
                     continue
 
-            new_biometrics.append(biometric)
+            records.append(record)
 
-        if USE_BULK_INSERT:
-            bulk_insert_objects(new_biometrics, "biometrics")
-        else:
-            for b in new_biometrics:
-                session.add(b)
+        if not records:
+            continue
+
+        stmt = pg_insert(Biometric).values(records)
+        stmt = stmt.on_conflict_do_nothing(index_elements=[
+            "patient_id", "biometric_type", "systolic", "diastolic", "value", "unit", "timestamp"
+        ])
+
+        try:
+            session.execute(stmt)
             session.commit()
-            logger.info("Inserted biometric chunk")
+            logger.info(f"Upserted {len(records)} biometrics")
+        except Exception as e:
+            logger.error(f"Failed to upsert biometrics: {e}")
+            session.rollback()
+
 
 def main():
     load_patients()
     load_biometrics()
+
 
 if __name__ == "__main__":
     main()

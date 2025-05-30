@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y gcc libpq-dev && rm -rf /var/lib/apt/li
 
 WORKDIR /app
 
+ENV DAGSTER_HOME=/app/dagster_home
+
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -14,4 +16,4 @@ COPY . .
 COPY setup.py .
 RUN pip install -e . --no-deps
 
-CMD ["dagster-webserver", "-w", "dagster_files/workspace.yaml", "-h", "0.0.0.0", "-p", "3000"]
+CMD ["dagster-webserver", "-w", "dagster_home/workspace.yaml", "-h", "0.0.0.0", "-p", "3000"]

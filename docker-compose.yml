@@ -88,13 +88,34 @@ services:
     container_name: dagster
     env_file:
       - .env
+    environment:
+      DAGSTER_HOME: /app/dagster_home
     ports:
       - "3000:3000"
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - .:/app
+      - ./dagster_home:/app/dagster_home
+    restart: unless-stopped
+
+  dagster-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile.dagster
+    command: ["sh", "-c", "export DAGSTER_HOME=/app/dagster_home && dagster-daemon run -w /app/dagster_home/workspace.yaml"]
+    env_file:
+      - .env
+    environment:
+      DAGSTER_HOME: /app/dagster_home
+    volumes:
+      - .:/app
+      - ./dagster_home:/app/dagster_home
+    depends_on:
+      - dagster
     restart: unless-stopped
 
 volumes:

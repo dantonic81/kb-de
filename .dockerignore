@@ -16,5 +16,11 @@ __pycache__
 .pytest_cache
 test_
 etl_output/
+dagster_home/.telemetry/
+dagster_home/event_logs/
+dagster_home/logs/
+dagster_home/runs/
+dagster_home/schedules/
+dagster_home/storage/
 
 

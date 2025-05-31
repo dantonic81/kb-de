@@ -36,8 +36,8 @@ class PatientBiometricHourlySummary(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
-    biometric_type = Column(String, nullable=False, index=True)
-    hour_start = Column(DateTime, nullable=False, index=True)  # Timestamp rounded to the hour
+    biometric_type = Column(String, nullable=False, index=True)  # e.g., 'glucose', 'weight', 'blood_pressure_systolic', 'blood_pressure_diastolic'
+    hour_start = Column(DateTime, nullable=False, index=True)
 
     min_value = Column(Float, nullable=True)
     max_value = Column(Float, nullable=True)
@@ -48,5 +48,4 @@ class PatientBiometricHourlySummary(Base):
         UniqueConstraint('patient_id', 'biometric_type', 'hour_start', name='uix_patient_type_hour'),
     )
 
-    # Optional: define relationship if Patient model exists
     patient = relationship("Patient", back_populates="hourly_summaries")

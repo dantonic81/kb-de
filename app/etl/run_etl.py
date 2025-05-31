@@ -8,6 +8,8 @@ from app.db.models import Patient, Biometric
 from app.schemas.patient_schema import PatientSchema
 from app.schemas.biometric_schema import BiometricSchema
 from sqlalchemy.exc import IntegrityError  # Add this with your other imports
+from datetime import datetime
+from typing import Dict, List
 
 
 logging.basicConfig(
@@ -22,6 +24,58 @@ Session = sessionmaker(bind=engine)
 session = Session()
 
 CHUNKSIZE = 1000
+
+
+
+# Constants for validation
+BIOMETRIC_RANGES = {
+    "glucose": (70, 200),  # mg/dL
+    "weight": (30, 200),   # kg
+    "blood_pressure": {
+        "systolic": (90, 140),
+        "diastolic": (60, 90)
+    }
+}
+
+UNIT_CONVERSIONS = {
+    "weight": {
+        "lbs": lambda x: x * 0.453592,
+        "kg": lambda x: x
+    },
+    "height": {
+        "in": lambda x: x * 2.54,
+        "cm": lambda x: x
+    }
+}
+
+def normalize_units(value: float, unit: str, metric_type: str) -> float:
+    """Convert values to standard units"""
+    if metric_type in UNIT_CONVERSIONS and unit in UNIT_CONVERSIONS[metric_type]:
+        return UNIT_CONVERSIONS[metric_type][unit](value)
+    return value
+
+
+def validate_biometric_ranges(row: Dict) -> List[str]:
+    """Check if values are within expected ranges"""
+    errors = []
+    metric_type = row["biometric_type"]
+
+    if metric_type == "blood_pressure":
+        systolic, diastolic = map(int, row["value"].split("/"))
+        if not (BIOMETRIC_RANGES["blood_pressure"]["systolic"][0] <= systolic <=
+                BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]):
+            errors.append(f"Systolic BP {systolic} out of range")
+        if not (BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0] <= diastolic <=
+                BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]):
+            errors.append(f"Diastolic BP {diastolic} out of range")
+    else:
+        value = float(row["value"])
+        if metric_type in BIOMETRIC_RANGES:
+            min_val, max_val = BIOMETRIC_RANGES[metric_type]
+            if not (min_val <= value <= max_val):
+                errors.append(f"{metric_type} value {value} out of range")
+
+    return errors
 
 
 def load_patients(json_file='data/patients.json'):
@@ -39,6 +93,13 @@ def load_patients(json_file='data/patients.json'):
         row_dict = row.dropna().to_dict()  # drop NaN keys like 'foo'
         try:
             PatientSchema.validate(pd.DataFrame([row_dict]))
+
+            # Age validation
+            dob = pd.to_datetime(row_dict["dob"]).date()
+            age = (datetime.now().date() - dob).days / 365
+            if age > 120 or age < 0:
+                raise ValueError(f"Implausible age: {age:.1f} years")
+
             valid_rows.append(row_dict)
         except Exception as e:
             logger.error(f"Patient row validation failed: {e} -- {row_dict}")
@@ -124,6 +185,36 @@ def load_biometrics(csv_file='data/biometrics.csv'):
 
         chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], errors='coerce')
         valid_chunk = chunk.dropna(subset=["patient_email", "biometric_type", "unit", "timestamp", "value"])
+
+        # Pre-process and validate each row
+        valid_rows = []
+        for _, row in valid_chunk.iterrows():
+            try:
+                row_dict = row.to_dict()
+
+                # Unit normalization
+                if row_dict["biometric_type"] == "weight":
+                    original_value = float(row_dict["value"])
+                    row_dict["value"] = normalize_units(
+                        original_value,
+                        row_dict["unit"],
+                        "weight"
+                    )
+                    row_dict["unit"] = "kg"  # Standardize unit
+                    logger.debug(f"Converted {original_value}{row['unit']} to {row_dict['value']}kg")
+
+                # Range validation
+                range_errors = validate_biometric_ranges(row_dict)
+                if range_errors:
+                    raise ValueError(", ".join(range_errors))
+
+                valid_rows.append(row_dict)
+            except Exception as e:
+                logger.error(f"Row processing failed: {e}\nRow: {row_dict}")
+                continue
+
+        # Replace valid_chunk with our processed rows
+        valid_chunk = pd.DataFrame(valid_rows) if valid_rows else pd.DataFrame()
 
         # NEW: Batch patient lookup with fresh query
         patient_emails = valid_chunk["patient_email"].unique().tolist()

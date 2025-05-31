@@ -13,19 +13,25 @@ run_launcher:
   class: DefaultRunLauncher
 
 event_log_storage:
-  module: dagster._core.storage.event_log
-  class: SqliteEventLogStorage
+  module: dagster_postgres.event_log
+  class: PostgresEventLogStorage
   config:
-    base_dir: /app/dagster_home/event_logs
+    postgres_url:
+      env: DAGSTER_PG_URL
+    should_autocreate_tables: true
 
 run_storage:
-  module: dagster._core.storage.runs
-  class: SqliteRunStorage
+  module: dagster_postgres.run_storage
+  class: PostgresRunStorage
   config:
-    base_dir: /app/dagster_home/runs
+    postgres_url:
+      env: DAGSTER_PG_URL
+    should_autocreate_tables: true
 
 schedule_storage:
-  module: dagster._core.storage.schedules
-  class: SqliteScheduleStorage
+  module: dagster_postgres.schedule_storage
+  class: PostgresScheduleStorage
   config:
-    base_dir: /app/dagster_home/schedules
+    postgres_url:
+      env: DAGSTER_PG_URL
+    should_autocreate_tables: true

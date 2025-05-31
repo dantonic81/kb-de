@@ -2,3 +2,9 @@
 .venv/
 __pycache__/
 *.pyc
+dagster_home/.telemetry/
+dagster_home/event_logs/
+dagster_home/logs/
+dagster_home/runs/
+dagster_home/schedules/
+dagster_home/storage/

@@ -189,9 +189,7 @@ def load_biometrics(csv_file='data/biometrics.csv'):
             continue
 
         stmt = pg_insert(Biometric).values(records)
-        stmt = stmt.on_conflict_do_nothing(index_elements=[
-            "patient_id", "biometric_type", "systolic", "diastolic", "value", "unit", "timestamp"
-        ])
+        stmt = stmt.on_conflict_do_nothing(constraint="unique_biometric_entry")
 
         try:
             session.execute(stmt)

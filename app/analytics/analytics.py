@@ -1,12 +1,17 @@
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import sessionmaker
 import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@db:5432/mydb")
 engine = create_engine(DATABASE_URL)
+Session = sessionmaker(bind=engine)
+
+# Assuming you have your ORM model defined somewhere like this:
+from app.db.models import PatientBiometricHourlySummary  # adjust import path accordingly
 
 def analytics_aggregate_biometrics():
-    # Query glucose and weight first, since they use 'value'
     query_basic = """
         SELECT
             patient_id,
@@ -17,7 +22,6 @@ def analytics_aggregate_biometrics():
         WHERE biometric_type IN ('glucose', 'weight')
     """
 
-    # Query blood pressure separately, getting systolic and diastolic as separate rows
     query_bp = """
         SELECT
             patient_id,
@@ -42,14 +46,12 @@ def analytics_aggregate_biometrics():
         df_basic = pd.read_sql(query_basic, conn)
         df_bp = pd.read_sql(query_bp, conn)
 
-    # Combine all biometrics into one dataframe
     df = pd.concat([df_basic, df_bp], ignore_index=True)
 
     if df.empty:
         print("No data found in biometrics table.")
         return
 
-    # Group by patient, biometric type, and hour, then aggregate
     agg_df = df.groupby(
         ['patient_id', 'biometric_type', 'hour_start']
     ).agg(
@@ -59,22 +61,28 @@ def analytics_aggregate_biometrics():
         count=('value', 'count')
     ).reset_index()
 
-    # Upsert the aggregated data into patient_biometric_hourly_summary
-    with engine.begin() as conn:
-        for _, row in agg_df.iterrows():
-            conn.execute(text("""
-                INSERT INTO patient_biometric_hourly_summary (
-                    patient_id, biometric_type, hour_start,
-                    min_value, max_value, avg_value, count
-                )
-                VALUES (:patient_id, :biometric_type, :hour_start,
-                        :min_value, :max_value, :avg_value, :count)
-                ON CONFLICT (patient_id, biometric_type, hour_start)
-                DO UPDATE SET
-                    min_value = EXCLUDED.min_value,
-                    max_value = EXCLUDED.max_value,
-                    avg_value = EXCLUDED.avg_value,
-                    count = EXCLUDED.count;
-            """), row.to_dict())
+    # Batch upsert using SQLAlchemy ORM session and insert().on_conflict_do_update()
+    with Session() as session:
+        table = PatientBiometricHourlySummary.__table__
+        records = agg_df.to_dict(orient='records')
+
+        stmt = insert(table).values(records)
+
+        update_cols = {
+            'min_value': stmt.excluded.min_value,
+            'max_value': stmt.excluded.max_value,
+            'avg_value': stmt.excluded.avg_value,
+            'count': stmt.excluded.count
+        }
+
+        upsert_stmt = stmt.on_conflict_do_update(
+            index_elements=['patient_id', 'biometric_type', 'hour_start'],
+            set_=update_cols
+        )
+        session.execute(upsert_stmt)
+        session.commit()
 
     print(f"Aggregated and upserted {len(agg_df)} rows.")
+
+if __name__ == "__main__":
+    analytics_aggregate_biometrics()

@@ -7,6 +7,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.db.models import Patient, Biometric
 from app.schemas.patient_schema import PatientSchema
 from app.schemas.biometric_schema import BiometricSchema
+from sqlalchemy.exc import IntegrityError  # Add this with your other imports
+
 
 logging.basicConfig(
     level=logging.INFO,

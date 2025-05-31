@@ -3,3 +3,7 @@ load_from:
       relative_path: "etl_dagster.py"
       location_name: "etl_dagster"
       working_directory: "/app/dagster_home"
+  - python_file:
+      relative_path: "analytics_dagster.py"
+      location_name: "analytics_dagster"
+      working_directory: "/app/dagster_home"

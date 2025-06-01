@@ -68,3 +68,21 @@ class BiometricUpsert(BaseModel):
 
 class BiometricPaginated(PaginatedResponse):
     data: List[BiometricOut]
+
+class AnalyticsOut(BaseModel):
+    id: int
+    patient_id: int
+    biometric_type: str
+    hour_start: datetime
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    avg_value: Optional[float] = None
+    count: int
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={datetime: lambda v: v.isoformat()}
+    )
+
+class AnalyticsPaginated(PaginatedResponse):
+    data: List[AnalyticsOut]

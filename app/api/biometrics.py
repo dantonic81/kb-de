@@ -162,3 +162,70 @@ def delete_biometric(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error: {str(e)}"
         )
+
+@router.get(
+    "/{patient_id}/analytics",
+    response_model=biometric_schema.AnalyticsPaginated,
+    summary="Get processed biometric analytics",
+    description="Retrieve hourly aggregated metrics (min/max/avg) for patient biometrics",
+    responses={
+        200: {"description": "Analytics data returned"},
+        404: {"description": "Patient not found"}
+    }
+)
+def get_biometric_analytics(
+    patient_id: int = Path(..., gt=0, description="Patient ID"),
+    metric: str = Query(
+        None,
+        regex="^(glucose|weight|blood_pressure_systolic|blood_pressure_diastolic)$",
+        description="Filter by specific metric type"
+    ),
+    start_date: datetime = Query(
+        None,
+        description="Start of time range (UTC)"
+    ),
+    end_date: datetime = Query(
+        None,
+        description="End of time range (UTC)"
+    ),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(24, ge=1, le=100),  # Defaults to 1 day of hourly data
+    db: Session = Depends(get_db)
+):
+    """
+    Get pre-aggregated biometric analytics (from hourly cronjob).
+    """
+    # Verify patient exists
+    if not db.query(models.Patient).get(patient_id):
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    query = db.query(models.PatientBiometricHourlySummary).filter(
+        models.PatientBiometricHourlySummary.patient_id == patient_id
+    )
+
+    # Apply filters
+    if metric:
+        query = query.filter(
+            models.PatientBiometricHourlySummary.biometric_type == metric
+        )
+    if start_date:
+        query = query.filter(
+            models.PatientBiometricHourlySummary.hour_start >= start_date
+        )
+    if end_date:
+        query = query.filter(
+            models.PatientBiometricHourlySummary.hour_start <= end_date
+        )
+
+    # Get results
+    total = query.count()
+    results = query.order_by(
+        models.PatientBiometricHourlySummary.hour_start.desc()
+    ).offset(skip).limit(limit).all()
+
+    return {
+        "data": results,
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }

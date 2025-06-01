@@ -75,24 +75,27 @@ def list_biometrics(
     "/{patient_id}",
     response_model=biometric_schema.BiometricOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Create or update biometric record",
+    summary="Create or update a biometric record",
     responses={
-        201: {"description": "Biometric record created/updated"},
+        201: {"description": "Biometric record created or updated"},
         404: {"description": "Patient not found"},
-        422: {"description": "Validation error"}
-    }
+        422: {"description": "Validation error"},
+        500: {"description": "Internal server error"},
+    },
 )
 def upsert_biometric(
-        patient_id: int,
-        data: biometric_schema.BiometricUpsert,
-        db: Session = Depends(get_db)
+    patient_id: int = Path(..., description="ID of the patient"),
+    data: biometric_schema.BiometricUpsert = ...,
+    db: Session = Depends(get_db)
 ):
     """
-    Create or update a biometric record for a patient.
+    Create or update a biometric record for the specified patient.
 
-    - **Blood Pressure**: Provide both systolic and diastolic values
-    - **Other Metrics**: Provide value and unit
-    - Uses timestamp as part of upsert key
+    - **Blood Pressure**: Must include both systolic and diastolic values.
+    - **Other Types**: Must include `value` and `unit`.
+    - The record is uniquely identified by `(patient_id, biometric_type, timestamp)`.
+
+    Returns the created or updated biometric entry.
     """
     # Verify patient exists
     if not db.query(models.Patient).get(patient_id):
@@ -101,22 +104,21 @@ def upsert_biometric(
             detail=f"Patient {patient_id} not found"
         )
 
-    # Prepare upsert data
     upsert_data = data.dict()
     upsert_data["patient_id"] = patient_id
 
-    # Special handling for blood pressure
+    # Validate and normalize fields based on biometric type
     if data.biometric_type == "blood_pressure":
         if not all([data.systolic, data.diastolic]):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Both systolic and diastolic required for blood pressure"
+                detail="Both systolic and diastolic are required for blood pressure"
             )
         upsert_data["value"] = None
     else:
         upsert_data.update({"systolic": None, "diastolic": None})
 
-    # Upsert operation
+    # Perform upsert
     stmt = insert(models.Biometric).values(**upsert_data)
     stmt = stmt.on_conflict_do_update(
         index_elements=["patient_id", "biometric_type", "timestamp"],
@@ -124,9 +126,8 @@ def upsert_biometric(
     )
 
     try:
-        result = db.execute(stmt)
+        db.execute(stmt)
         db.commit()
-        # Return the upserted record
         record = db.query(models.Biometric).filter(
             models.Biometric.patient_id == patient_id,
             models.Biometric.biometric_type == data.biometric_type,

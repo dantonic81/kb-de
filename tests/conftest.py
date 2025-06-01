@@ -38,3 +38,14 @@ def client(db_session):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+@pytest.fixture(autouse=True)
+def override_get_db(client, db_session):
+    def _get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    client.app.dependency_overrides[get_db] = _get_db
+    yield
+    client.app.dependency_overrides.clear()

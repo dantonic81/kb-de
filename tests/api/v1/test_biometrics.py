@@ -261,3 +261,66 @@ def test_delete_biometric_db_error(client: TestClient, monkeypatch, db_session):
 
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
     assert "database error" in response.json()["detail"].lower()
+
+
+def test_get_biometric_analytics_success(client, db_session):
+    # Create a patient
+    patient = models.Patient(name="Test Patient")
+    db_session.add(patient)
+    db_session.commit()
+    db_session.refresh(patient)
+
+    # Add some hourly summaries for this patient, set count=1 to avoid None
+    now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    metrics = [
+        models.PatientBiometricHourlySummary(
+            patient_id=patient.id,
+            biometric_type="weight",
+            hour_start=now - timedelta(hours=1),
+            min_value=60.0,
+            max_value=65.0,
+            avg_value=62.5,
+            count=1,
+        ),
+        models.PatientBiometricHourlySummary(
+            patient_id=patient.id,
+            biometric_type="glucose",
+            hour_start=now - timedelta(hours=2),
+            min_value=80.0,
+            max_value=120.0,
+            avg_value=100.0,
+            count=1,
+        ),
+    ]
+    db_session.add_all(metrics)
+    db_session.commit()
+
+    # Call endpoint without filters
+    response = client.get(f"/biometrics/{patient.id}/analytics")
+    assert response.status_code == status.HTTP_200_OK
+    json_data = response.json()
+    assert json_data["total"] == 2
+    assert len(json_data["data"]) == 2
+
+    # Call endpoint with metric filter
+    response = client.get(f"/biometrics/{patient.id}/analytics?metric=weight")
+    assert response.status_code == status.HTTP_200_OK
+    json_data = response.json()
+    assert json_data["total"] == 1
+    assert all(item["biometric_type"] == "weight" for item in json_data["data"])
+
+    # Call endpoint with date range filter
+    start = (now - timedelta(hours=1, minutes=30)).isoformat()
+    end = now.isoformat()
+    response = client.get(
+        f"/biometrics/{patient.id}/analytics?start_date={start}&end_date={end}"
+    )
+    assert response.status_code == status.HTTP_200_OK
+    json_data = response.json()
+    assert json_data["total"] == 1
+    assert all(start <= item["hour_start"] <= end for item in json_data["data"])
+
+def test_get_biometric_analytics_patient_not_found(client):
+    response = client.get("/biometrics/999999/analytics")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Patient not found"}

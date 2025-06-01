@@ -2,6 +2,8 @@ import pytest
 from datetime import datetime, timedelta
 from app.db import models
 
+
+# tests for 2nd endpoint
 def test_list_biometrics_patient_not_found(client):
     response = client.get("/biometrics/9999")  # non-existent patient
     assert response.status_code == 404
@@ -77,3 +79,118 @@ def test_list_biometrics_with_data(client, db_session):
     assert data["skip"] == 2
     assert data["limit"] == 3
     assert len(data["data"]) == 3
+
+
+# tests for 3rd endpoint
+def test_upsert_biometric_create(client, db_session, db_engine):
+    if "sqlite" in str(db_engine.dialect.name):
+        pytest.skip("SQLite does not support native ON CONFLICT upsert")
+    # Create patient first
+    patient = models.Patient(name="Test Patient", dob="1990-01-01")
+    db_session.add(patient)
+    db_session.commit()
+
+    payload = {
+        "biometric_type": "weight",
+        "value": 70.5,
+        "unit": "kg",
+        "timestamp": datetime.utcnow().isoformat(),
+        "systolic": None,
+        "diastolic": None
+    }
+
+    response = client.post(f"/biometrics/{patient.id}", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["patient_id"] == patient.id
+    assert data["biometric_type"] == "weight"
+    assert data["value"] == 70.5
+    assert data["unit"] == "kg"
+
+
+def test_upsert_biometric_update(client, db_engine, db_session):
+    if "sqlite" in str(db_engine.dialect.name):
+        pytest.skip("SQLite does not support native ON CONFLICT upsert")
+    # Create patient and biometric first
+    patient = models.Patient(name="Test Patient 2", dob="1990-01-01")
+    db_session.add(patient)
+    db_session.commit()
+
+    timestamp = datetime.utcnow()
+
+    biometric = models.Biometric(
+        patient_id=patient.id,
+        biometric_type="weight",
+        value=70.5,
+        unit="kg",
+        timestamp=timestamp
+    )
+    db_session.add(biometric)
+    db_session.commit()
+
+    # Update biometric value
+    payload = {
+        "biometric_type": "weight",
+        "value": 72.0,
+        "unit": "kg",
+        "timestamp": timestamp.isoformat(),
+        "systolic": None,
+        "diastolic": None
+    }
+
+    response = client.post(f"/biometrics/{patient.id}", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["value"] == 72.0  # Updated value
+
+
+def test_upsert_biometric_patient_not_found(client):
+    payload = {
+        "biometric_type": "weight",
+        "value": 70.5,
+        "unit": "kg",
+        "timestamp": datetime.utcnow().isoformat(),
+        "systolic": None,
+        "diastolic": None
+    }
+
+    response = client.post("/biometrics/9999", json=payload)  # Nonexistent patient ID
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Patient 9999 not found"
+
+
+@pytest.mark.parametrize(
+    "payload, error_detail",
+    [
+        (
+            {
+                "biometric_type": "blood_pressure",
+                "value": None,
+                "unit": "mmHg",
+                "timestamp": datetime.utcnow().isoformat(),
+                "systolic": None,
+                "diastolic": 80
+            },
+            "Both systolic and diastolic are required for blood pressure"
+        ),
+        (
+            {
+                "biometric_type": "blood_pressure",
+                "value": None,
+                "unit": "mmHg",
+                "timestamp": datetime.utcnow().isoformat(),
+                "systolic": 120,
+                "diastolic": None
+            },
+            "Both systolic and diastolic are required for blood pressure"
+        ),
+    ]
+)
+def test_upsert_biometric_validation_error(client, db_session, payload, error_detail):
+    patient = models.Patient(name="Test Patient 3", dob="1990-01-01")
+    db_session.add(patient)
+    db_session.commit()
+
+    response = client.post(f"/biometrics/{patient.id}", json=payload)
+    assert response.status_code == 422
+    assert response.json()["detail"] == error_detail

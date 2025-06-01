@@ -1,17 +1,16 @@
 import os
 import logging
+import glob
 import pandas as pd
 import pandera as pa
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
-from pandera import Column, DataFrameSchema, Check
 from app.db.models import Patient, Biometric
 from app.schemas.patient_schema import PatientSchema
 from app.schemas.biometric_schema import BiometricSchema
-from sqlalchemy import text
 
 # Configure logging
 logging.basicConfig(
@@ -20,17 +19,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Database setup
+# Constants
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@db:5432/mydb")
-engine = create_engine(DATABASE_URL)
-Session = sessionmaker(bind=engine)
-session = Session()
-
+BIOMETRICS_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "biometrics_simulated"))
+PATIENTS_FILE = os.path.join(BASE_DIR, "..", "..", "data", "patients.json")
+FILE_PREFIX = "biometrics_"
+FILE_EXT = ".csv"
 CHUNKSIZE = 1000
 
-
-
-# Constants
+# Biometric validation parameters
 BIOMETRIC_RANGES = {
     "glucose": (70, 200),  # mg/dL
     "weight": (30, 200),  # kg
@@ -48,6 +46,13 @@ UNIT_CONVERSIONS = {
 }
 
 
+def get_db_session():
+    """Create and return a new database session"""
+    engine = create_engine(DATABASE_URL)
+    Session = sessionmaker(bind=engine)
+    return Session()
+
+
 def normalize_units(value: float, unit: str, metric_type: str) -> float:
     """Convert values to standard units"""
     if metric_type in UNIT_CONVERSIONS and unit in UNIT_CONVERSIONS[metric_type]:
@@ -61,30 +66,36 @@ def validate_biometric_ranges(row: dict) -> list:
     metric_type = row["biometric_type"]
 
     if metric_type == "blood_pressure":
-        systolic, diastolic = map(int, row["value"].split("/"))
-        if not (BIOMETRIC_RANGES["blood_pressure"]["systolic"][0] <= systolic <=
-                BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]):
-            errors.append(f"Systolic BP {systolic} out of range")
-        if not (BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0] <= diastolic <=
-                BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]):
-            errors.append(f"Diastolic BP {diastolic} out of range")
+        try:
+            systolic, diastolic = map(int, row["value"].split("/"))
+            if not (BIOMETRIC_RANGES["blood_pressure"]["systolic"][0] <= systolic <=
+                    BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]):
+                errors.append(f"Systolic BP {systolic} out of range")
+            if not (BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0] <= diastolic <=
+                    BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]):
+                errors.append(f"Diastolic BP {diastolic} out of range")
+        except ValueError:
+            errors.append("Invalid blood pressure format")
     else:
-        value = float(row["value"])
-        if metric_type in BIOMETRIC_RANGES:
-            min_val, max_val = BIOMETRIC_RANGES[metric_type]
-            if not (min_val <= value <= max_val):
-                errors.append(f"{metric_type} value {value} out of range")
+        try:
+            value = float(row["value"])
+            if metric_type in BIOMETRIC_RANGES:
+                min_val, max_val = BIOMETRIC_RANGES[metric_type]
+                if not (min_val <= value <= max_val):
+                    errors.append(f"{metric_type} value {value} out of range")
+        except ValueError:
+            errors.append(f"Invalid value for {metric_type}")
 
     return errors
 
 
-def load_patients(json_file='data/patients.json'):
+def load_patients(PATIENTS_FILE):
     """Load and process patient data"""
     invalid_patient_rows = []
     valid_rows = []
 
     try:
-        df = pd.read_json(json_file)
+        df = pd.read_json(PATIENTS_FILE)
     except Exception as e:
         logger.error(f"Failed to load patient JSON: {e}")
         return
@@ -130,27 +141,29 @@ def load_patients(json_file='data/patients.json'):
         for _, row in df_valid.iterrows()
     ]
 
-    # Upsert patients
-    stmt = pg_insert(Patient).values(records)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["email"],
-        set_={
-            "name": stmt.excluded.name,
-            "dob": stmt.excluded.dob,
-            "gender": stmt.excluded.gender,
-            "address": stmt.excluded.address,
-            "phone": stmt.excluded.phone,
-            "sex": stmt.excluded.sex
-        }
-    )
-
+    session = get_db_session()
     try:
+        # Upsert patients
+        stmt = pg_insert(Patient).values(records)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["email"],
+            set_={
+                "name": stmt.excluded.name,
+                "dob": stmt.excluded.dob,
+                "gender": stmt.excluded.gender,
+                "address": stmt.excluded.address,
+                "phone": stmt.excluded.phone,
+                "sex": stmt.excluded.sex
+            }
+        )
         session.execute(stmt)
         session.commit()
         logger.info(f"Upserted {len(records)} patients")
     except Exception as e:
         logger.error(f"Failed to upsert patients: {e}")
         session.rollback()
+    finally:
+        session.close()
 
     # Save invalid records
     if invalid_patient_rows:
@@ -163,10 +176,20 @@ def load_patients(json_file='data/patients.json'):
         logger.info(f"Saved {len(invalid_patient_rows)} invalid patient records")
 
 
-def load_biometrics(csv_file='data/biometrics.csv'):
-    """Load and process biometric data"""
-    session.commit()
-    session.expire_all()
+def get_simulated_files():
+    """Get all simulation files in chronological order"""
+    files = glob.glob(os.path.join(BIOMETRICS_DIR, f"{FILE_PREFIX}*{FILE_EXT}"))
+    # Sort files by timestamp in filename
+    files.sort(key=lambda x: datetime.strptime(
+        os.path.basename(x)[len(FILE_PREFIX):-len(FILE_EXT)],
+        "%Y-%m-%dT%H-%M"
+    ))
+    return files
+
+
+def process_biometric_file(csv_file: str):
+    """Process a single biometric data file"""
+    session = get_db_session()
     invalid_biometric_rows = []
     csv_columns = ["patient_email", "biometric_type", "value", "unit", "timestamp"]
 
@@ -255,7 +278,7 @@ def load_biometrics(csv_file='data/biometrics.csv'):
         if records:
             stmt = pg_insert(Biometric).values(records)
             stmt = stmt.on_conflict_do_update(
-                index_elements=[  # Changed from constraint= to index_elements=
+                index_elements=[
                     'patient_id',
                     'biometric_type',
                     'timestamp',
@@ -274,7 +297,7 @@ def load_biometrics(csv_file='data/biometrics.csv'):
             try:
                 session.execute(stmt)
                 session.commit()
-                logger.info(f"Processed {len(records)} biometric records")
+                logger.info(f"Processed {len(records)} biometric records from {csv_file}")
             except IntegrityError as e:
                 session.rollback()
                 logger.critical(f"Data integrity error: {e}")
@@ -286,19 +309,31 @@ def load_biometrics(csv_file='data/biometrics.csv'):
     # Save invalid records
     if invalid_biometric_rows:
         os.makedirs("rejected", exist_ok=True)
-        pd.DataFrame(invalid_biometric_rows).to_csv(
-            "rejected/biometrics_invalid.csv",
-            index=False
-        )
-        logger.info(f"Saved {len(invalid_biometric_rows)} invalid biometric records")
+        invalid_file = os.path.join("rejected", f"invalid_{os.path.basename(csv_file)}")
+        pd.DataFrame(invalid_biometric_rows).to_csv(invalid_file, index=False)
+        logger.info(f"Saved {len(invalid_biometric_rows)} invalid biometric records to {invalid_file}")
+
+    session.close()
+
+
+def process_simulated_biometrics():
+    """Process all available simulated files"""
+    files = get_simulated_files()
+    if not files:
+        logger.info("No simulated files found")
+        return
+
+    for file in files:
+        logger.info(f"Processing simulated file: {file}")
+        process_biometric_file(file)
 
 
 def main():
     """Run the ETL pipeline"""
     try:
         logger.info("Starting ETL pipeline")
-        load_patients()
-        load_biometrics()
+        load_patients(PATIENTS_FILE)
+        process_simulated_biometrics()
         logger.info("ETL pipeline completed successfully")
     except Exception as e:
         logger.critical(f"ETL pipeline failed: {e}")

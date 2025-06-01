@@ -7,3 +7,7 @@ load_from:
       relative_path: "analytics_dagster.py"
       location_name: "analytics_dagster"
       working_directory: "/app/dagster_home"
+  - python_file:
+      relative_path: "time_series_simulator_dagster.py"
+      location_name: "time_series_simulator_dagster"
+      working_directory: "/app/dagster_home"

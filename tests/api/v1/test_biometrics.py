@@ -1,6 +1,10 @@
 import pytest
 from datetime import datetime, timedelta
 from app.db import models
+from app.db.models import Biometric, Patient
+from fastapi import status
+from fastapi.testclient import TestClient
+
 
 
 # tests for 2nd endpoint
@@ -194,3 +198,66 @@ def test_upsert_biometric_validation_error(client, db_session, payload, error_de
     response = client.post(f"/biometrics/{patient.id}", json=payload)
     assert response.status_code == 422
     assert response.json()["detail"] == error_detail
+
+# tests for 4th endpoint
+@pytest.mark.usefixtures("db_session")
+def test_delete_biometric_success(client: TestClient, db_session):
+    # Create a patient and biometric record
+    patient = Patient(name="Test Patient")
+    db_session.add(patient)
+    db_session.commit()
+
+    biometric = Biometric(
+        patient_id=patient.id,
+        biometric_type="weight",
+        value=70.5,
+        unit="kg",
+        timestamp=datetime(2024, 1, 1, 10, 0, 0)
+    )
+    db_session.add(biometric)
+    db_session.commit()
+
+    # Perform DELETE request
+    response = client.delete(f"/biometrics/{biometric.id}")
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    # Verify record was deleted
+    deleted = db_session.query(Biometric).get(biometric.id)
+    assert deleted is None
+
+@pytest.mark.usefixtures("db_session")
+def test_delete_biometric_not_found(client: TestClient):
+    # Delete non-existing ID
+    response = client.delete("/biometrics/99999")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "not found" in response.json()["detail"].lower()
+
+@pytest.mark.usefixtures("db_session")
+def test_delete_biometric_db_error(client: TestClient, monkeypatch, db_session):
+    # Create patient and biometric to delete
+    patient = Patient(name="Test Patient")
+    db_session.add(patient)
+    db_session.commit()
+
+    biometric = Biometric(
+        patient_id=patient.id,
+        biometric_type="weight",
+        value=70.5,
+        unit="kg",
+        timestamp=datetime(2024, 1, 1, 10, 0, 0)
+    )
+    db_session.add(biometric)
+    db_session.commit()
+
+    # Monkeypatch db_session.commit to raise SQLAlchemyError
+    from sqlalchemy.exc import SQLAlchemyError
+    def raise_error():
+        raise SQLAlchemyError("DB failure")
+
+    monkeypatch.setattr(db_session, "commit", raise_error)
+
+    response = client.delete(f"/biometrics/{biometric.id}")
+
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert "database error" in response.json()["detail"].lower()

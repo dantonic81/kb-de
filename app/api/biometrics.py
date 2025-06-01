@@ -12,15 +12,35 @@ from app.schemas import biometric as biometric_schema
 router = APIRouter(tags=["biometrics"])
 
 
-@router.get("/{patient_id}", response_model=biometric_schema.BiometricPaginated)
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
+from sqlalchemy.orm import Session
+from app.db.session import get_db
+from app.db import models
+from app.schemas import biometric as biometric_schema
+
+router = APIRouter()
+
+@router.get(
+    "/{patient_id}",
+    response_model=biometric_schema.BiometricPaginated,
+    summary="List biometrics for a patient",
+    response_description="Paginated biometric data for the specified patient"
+)
 def list_biometrics(
-    patient_id: int,
-    type: str = None,
-    skip: int = 0,
-    limit: int = 10,
+    patient_id: int = Path(..., description="ID of the patient"),
+    type: str | None = Query(None, description="Optional filter by biometric type"),
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(10, ge=1, description="Maximum number of records to return"),
     db: Session = Depends(get_db)
 ):
-    # First verify patient exists
+    """
+    Retrieve a paginated list of biometrics for a specific patient.
+
+    - **patient_id**: ID of the patient.
+    - **type**: Optional filter by biometric type (e.g., "weight", "blood_pressure").
+    - **skip**: Number of records to skip for pagination.
+    - **limit**: Maximum number of records to return.
+    """
     patient = db.query(models.Patient).get(patient_id)
     if not patient:
         raise HTTPException(
@@ -28,23 +48,20 @@ def list_biometrics(
             detail=f"Patient {patient_id} not found"
         )
 
-    # Build base query
     query = db.query(models.Biometric).filter(
         models.Biometric.patient_id == patient_id
     )
 
-    # Apply type filter if provided
     if type:
         query = query.filter(models.Biometric.biometric_type == type.lower())
 
-    # Get total count before pagination
     total = query.count()
-
-    # Apply pagination
-    results = query.order_by(models.Biometric.timestamp.desc()) \
-                 .offset(skip) \
-                 .limit(limit) \
-                 .all()
+    results = (
+        query.order_by(models.Biometric.timestamp.desc())
+             .offset(skip)
+             .limit(limit)
+             .all()
+    )
 
     return {
         "data": results,

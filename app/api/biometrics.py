@@ -149,13 +149,13 @@ def upsert_biometric(
     responses={
         204: {"description": "Record deleted successfully"},
         404: {"description": "Record not found"},
-        500: {"description": "Database error"}
-    }
+        500: {"description": "Database error"},
+    },
 )
 def delete_biometric(
-        biometric_id: int = Path(..., gt=0, description="ID of the biometric record to delete"),
-        db: Session = Depends(get_db)
-):
+    biometric_id: int = Path(..., gt=0, description="ID of the biometric record to delete"),
+    db: Session = Depends(get_db),
+) -> Response:
     """
     Delete a specific biometric record by ID.
 
@@ -167,7 +167,7 @@ def delete_biometric(
     if not record:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Biometric record {biometric_id} not found"
+            detail=f"Biometric record {biometric_id} not found",
         )
 
     try:
@@ -178,7 +178,7 @@ def delete_biometric(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            detail=f"Database error: {str(e)}",
         )
 
 @router.get(

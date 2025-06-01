@@ -1,24 +1,15 @@
-from fastapi import APIRouter, Depends, Query, HTTPException, status, Path, Response
-from typing import Optional, List
-from sqlalchemy import and_
+from fastapi import APIRouter, Depends, Response, HTTPException, Query, Path, status
 from sqlalchemy import exc
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
 from datetime import datetime
+from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db import models
 from app.schemas import biometric as biometric_schema
+
 
 router = APIRouter(tags=["biometrics"])
 
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
-from sqlalchemy.orm import Session
-from app.db.session import get_db
-from app.db import models
-from app.schemas import biometric as biometric_schema
-
-router = APIRouter()
 
 @router.get(
     "/{patient_id}",
@@ -188,62 +179,62 @@ def delete_biometric(
     description="Retrieve hourly aggregated metrics (min/max/avg) for patient biometrics",
     responses={
         200: {"description": "Analytics data returned"},
-        404: {"description": "Patient not found"}
-    }
+        404: {"description": "Patient not found"},
+    },
 )
 def get_biometric_analytics(
     patient_id: int = Path(..., gt=0, description="Patient ID"),
-    metric: str = Query(
+    metric: str | None = Query(
         None,
         regex="^(glucose|weight|blood_pressure_systolic|blood_pressure_diastolic)$",
-        description="Filter by specific metric type"
+        description="Filter by specific metric type",
     ),
-    start_date: datetime = Query(
+    start_date: datetime | None = Query(
         None,
-        description="Start of time range (UTC)"
+        description="Start of time range (UTC)",
     ),
-    end_date: datetime = Query(
+    end_date: datetime | None = Query(
         None,
-        description="End of time range (UTC)"
+        description="End of time range (UTC)",
     ),
     skip: int = Query(0, ge=0),
     limit: int = Query(24, ge=1, le=100),  # Defaults to 1 day of hourly data
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Get pre-aggregated biometric analytics (from hourly cronjob).
+
+    - Returns paginated hourly aggregated biometric metrics
+    - Supports filtering by metric type and date range
+    - Returns 404 if patient not found
     """
     # Verify patient exists
     if not db.query(models.Patient).get(patient_id):
-        raise HTTPException(status_code=404, detail="Patient not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
     query = db.query(models.PatientBiometricHourlySummary).filter(
         models.PatientBiometricHourlySummary.patient_id == patient_id
     )
 
-    # Apply filters
     if metric:
-        query = query.filter(
-            models.PatientBiometricHourlySummary.biometric_type == metric
-        )
-    if start_date:
-        query = query.filter(
-            models.PatientBiometricHourlySummary.hour_start >= start_date
-        )
-    if end_date:
-        query = query.filter(
-            models.PatientBiometricHourlySummary.hour_start <= end_date
-        )
+        query = query.filter(models.PatientBiometricHourlySummary.biometric_type == metric)
 
-    # Get results
+    if start_date:
+        query = query.filter(models.PatientBiometricHourlySummary.hour_start >= start_date)
+
+    if end_date:
+        query = query.filter(models.PatientBiometricHourlySummary.hour_start <= end_date)
+
     total = query.count()
-    results = query.order_by(
-        models.PatientBiometricHourlySummary.hour_start.desc()
-    ).offset(skip).limit(limit).all()
+
+    results = query.order_by(models.PatientBiometricHourlySummary.hour_start.desc()) \
+                   .offset(skip) \
+                   .limit(limit) \
+                   .all()
 
     return {
         "data": results,
         "total": total,
         "skip": skip,
-        "limit": limit
+        "limit": limit,
     }

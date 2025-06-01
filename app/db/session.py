@@ -1,10 +1,8 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from app.core.config import settings
 
-# Format: postgresql+psycopg2://<username>:<password>@<host>:<port>/<database>
-SQLALCHEMY_DATABASE_URL = "postgresql+psycopg2://user:password@localhost:5432/health_data"
-
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(str(settings.DATABASE_URL))
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():

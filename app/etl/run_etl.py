@@ -211,7 +211,11 @@ def process_biometric_file(csv_file: str):
             logger.error(f"Missing columns in CSV: {missing_cols}")
             continue
 
-        chunk["timestamp"] = pd.to_datetime(chunk["timestamp"], errors='coerce')
+        chunk["timestamp"] = pd.to_datetime(
+            chunk["timestamp"],
+            format='%Y-%m-%dT%H:%M:%S',
+            errors='coerce'
+        )
         valid_chunk = chunk.dropna(subset=csv_columns)
 
         # Schema validation
@@ -220,8 +224,12 @@ def process_biometric_file(csv_file: str):
         except pa.errors.SchemaErrors as err:
             logger.warning(f"Schema validation errors: {err.failure_cases}")
             valid_idx = set(valid_chunk.index) - set(err.failure_cases['index'])
-            valid_chunk = valid_chunk.loc[valid_idx]
-            invalid_biometric_rows.extend(chunk.loc[err.failure_cases['index']].to_dict('records'))
+            valid_chunk = valid_chunk.loc[list(valid_idx)]  # Convert set to list
+            # Get invalid indices safely
+            invalid_indices = err.failure_cases['index'].dropna()  # Remove NA values
+            if not invalid_indices.empty:
+                invalid_rows = chunk.loc[invalid_indices].to_dict('records')
+                invalid_biometric_rows.extend(invalid_rows)
 
         # Patient lookup
         patient_emails = valid_chunk["patient_email"].unique().tolist()
@@ -276,35 +284,33 @@ def process_biometric_file(csv_file: str):
 
         # Batch upsert
         if records:
-            stmt = pg_insert(Biometric).values(records)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=[
-                    'patient_id',
-                    'biometric_type',
-                    'timestamp',
-                    text("COALESCE(value::text, '')"),
-                    text("COALESCE(systolic::text, '')"),
-                    text("COALESCE(diastolic::text, '')")
-                ],
-                set_={
-                    "value": stmt.excluded.value,
-                    "systolic": stmt.excluded.systolic,
-                    "diastolic": stmt.excluded.diastolic,
-                    "unit": stmt.excluded.unit
-                }
-            )
-
             try:
-                session.execute(stmt)
+                # First attempt direct insert
+                session.bulk_insert_mappings(Biometric, records)
                 session.commit()
-                logger.info(f"Processed {len(records)} biometric records from {csv_file}")
-            except IntegrityError as e:
+                logger.info(f"Inserted {len(records)} new biometric records")
+            except IntegrityError:
                 session.rollback()
-                logger.critical(f"Data integrity error: {e}")
-                raise
-            except Exception as e:
-                session.rollback()
-                logger.error(f"Unexpected error: {e}")
+                logger.info("Duplicate detected, switching to individual upserts")
+
+                # Fallback to one-by-one upsert
+                for record in records:
+                    try:
+                        stmt = pg_insert(Biometric).values(record)
+                        stmt = stmt.on_conflict_do_update(
+                            index_elements=['patient_id', 'biometric_type', 'timestamp'],
+                            set_={
+                                "value": stmt.excluded.value,
+                                "systolic": stmt.excluded.systolic,
+                                "diastolic": stmt.excluded.diastolic,
+                                "unit": stmt.excluded.unit
+                            }
+                        )
+                        session.execute(stmt)
+                        session.commit()
+                    except Exception as e:
+                        logger.error(f"Failed to upsert record: {e}")
+                        session.rollback()
 
     # Save invalid records
     if invalid_biometric_rows:

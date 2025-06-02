@@ -49,3 +49,18 @@ class PatientBiometricHourlySummary(Base):
     )
 
     patient = relationship("Patient", back_populates="hourly_summaries")
+
+
+# In your models.py
+class BiometricTrend(Base):
+    __tablename__ = "biometric_trends"
+
+    id = Column(Integer, primary_key=True)
+    patient_id = Column(Integer, ForeignKey('patients.id'))
+    biometric_type = Column(String(50))
+    trend = Column(String(20))  # 'increasing', 'stable', 'decreasing', 'volatile', 'insufficient_data'
+    analyzed_at = Column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint('patient_id', 'biometric_type', name='uq_patient_biometric_trend'),
+    )

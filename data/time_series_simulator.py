@@ -54,19 +54,17 @@ def simulate_and_write():
     patients = load_patients()
     latest_ts = find_latest_timestamp()
     if latest_ts is None:
-        # start simulation at beginning of current hour minus 1 hour (so ETL has initial data)
         latest_ts = datetime.now() - timedelta(hours=1)
     new_ts = latest_ts + timedelta(hours=1)
 
     filename = f"{FILE_PREFIX}{new_ts.strftime('%Y-%m-%dT%H-%M')}{FILE_EXT}"
     filepath = os.path.join(BIOMETRICS_DIR, filename)
 
-    # If file already exists, don't overwrite (avoid duplicates)
     if os.path.exists(filepath):
         print(f"File {filename} already exists. Exiting to avoid duplicates.")
         return
 
-    print(f"Generating simulated biometrics data for time: {new_ts.isoformat(timespec='hours')}")
+    print(f"Generating simulated biometrics data for time: {new_ts.strftime('%Y-%m-%d %H:%M')}")
     with open(filepath, "w", newline="") as csvfile:
         fieldnames = ["patient_email", "biometric_type", "value", "unit", "timestamp"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -74,15 +72,14 @@ def simulate_and_write():
 
         for patient in patients:
             email = patient["email"]
-            ts_iso = new_ts.isoformat()
+            ts_str = new_ts.strftime("%Y-%m-%dT%H:%M:%S")
 
-            # Generate glucose reading
             writer.writerow({
                 "patient_email": email,
                 "biometric_type": "glucose",
                 "value": generate_glucose(),
                 "unit": "mg/dL",
-                "timestamp": ts_iso
+                "timestamp": ts_str
             })
 
             # Generate weight reading
@@ -91,7 +88,7 @@ def simulate_and_write():
                 "biometric_type": "weight",
                 "value": generate_weight(),
                 "unit": "kg",
-                "timestamp": ts_iso
+                "timestamp": ts_str
             })
 
             # Generate blood pressure reading
@@ -100,7 +97,7 @@ def simulate_and_write():
                 "biometric_type": "blood_pressure",
                 "value": generate_blood_pressure(),
                 "unit": "mmHg",
-                "timestamp": ts_iso
+                "timestamp": ts_str
             })
 
     print(f"Simulation file written: {filepath}")

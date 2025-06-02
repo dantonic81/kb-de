@@ -12,3 +12,4 @@ dagster
 dagster-webserver
 dagster-postgres
 dagit
+statsmodels==0.14.4

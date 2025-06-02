@@ -1,18 +1,22 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint, Date
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from app.db.base import Base
 
 class Patient(Base):
     __tablename__ = "patients"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String)
-    dob = Column(String)
+    name = Column(String(100))
+    dob = Column(Date)
     gender = Column(String)
     address = Column(String)
-    email = Column(String, unique=True)
+    email = Column(String(150), unique=True, index=True)
     phone = Column(String)
     sex = Column(String)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     biometrics = relationship("Biometric", back_populates="patient")
     hourly_summaries = relationship("PatientBiometricHourlySummary", back_populates="patient", cascade="all, delete-orphan")
@@ -21,15 +25,23 @@ class Biometric(Base):
     __tablename__ = "biometrics"
 
     id = Column(Integer, primary_key=True, index=True)
-    patient_id = Column(Integer, ForeignKey("patients.id"))
-    biometric_type = Column(String)
+    patient_id = Column(Integer, ForeignKey("patients.id"), nullable=False, index=True)
+    biometric_type = Column(String(50), nullable=False, index=True)
     value = Column(Float, nullable=True)
     systolic = Column(Integer, nullable=True)
     diastolic = Column(Integer, nullable=True)
     unit = Column(String)
-    timestamp = Column(DateTime)
+    timestamp = Column(DateTime, nullable=False, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("patient_id", "biometric_type", "timestamp", name="uq_patient_type_timestamp"),
+    )
 
     patient = relationship("Patient", back_populates="biometrics")
+
 
 class PatientBiometricHourlySummary(Base):
     __tablename__ = "patient_biometric_hourly_summary"
@@ -44,6 +56,9 @@ class PatientBiometricHourlySummary(Base):
     avg_value = Column(Float, nullable=True)
     count = Column(Integer, nullable=True)
 
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
     __table_args__ = (
         UniqueConstraint('patient_id', 'biometric_type', 'hour_start', name='uix_patient_type_hour'),
     )
@@ -56,10 +71,13 @@ class BiometricTrend(Base):
     __tablename__ = "biometric_trends"
 
     id = Column(Integer, primary_key=True)
-    patient_id = Column(Integer, ForeignKey('patients.id'))
-    biometric_type = Column(String(50))
+    patient_id = Column(Integer, ForeignKey('patients.id'), index=True)
+    biometric_type = Column(String(50), index=True)
     trend = Column(String(20))  # 'increasing', 'stable', 'decreasing', 'volatile', 'insufficient_data'
     analyzed_at = Column(DateTime)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
         UniqueConstraint('patient_id', 'biometric_type', name='uq_patient_biometric_trend'),

@@ -6,7 +6,7 @@ from app.schemas.base import PaginatedResponse
 class BiometricBase(BaseModel):
     biometric_type: str
     timestamp: datetime
-    unit: str
+    unit: Optional[str] = None
 
 class BiometricIn(BiometricBase):
     value: Optional[float] = None
@@ -51,7 +51,7 @@ class BiometricOut(BiometricIn):
 class BiometricUpsert(BaseModel):
     biometric_type: str
     timestamp: datetime
-    unit: str
+    unit: Optional[str] = None
     value: Optional[float] = None
     systolic: Optional[int] = None
     diastolic: Optional[int] = None

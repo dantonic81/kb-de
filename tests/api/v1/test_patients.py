@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db import models
 from app.db.session import get_db
+from datetime import date
 
 
 @pytest.fixture
@@ -27,7 +28,7 @@ def test_list_patients_with_data(client, db_session):
     patients = [
         models.Patient(
             name="Alice",
-            dob="1994-06-01",
+            dob=date(1994, 6, 1),
             gender="female",
             address="123 A St",
             email="alice@example.com",
@@ -36,7 +37,7 @@ def test_list_patients_with_data(client, db_session):
         ),
         models.Patient(
             name="Bob",
-            dob="1984-06-01",
+            dob=date(1984, 6, 1),
             gender="male",
             address="456 B St",
             email="bob@example.com",
@@ -45,7 +46,7 @@ def test_list_patients_with_data(client, db_session):
         ),
         models.Patient(
             name="Carol",
-            dob="1974-06-01",
+            dob=date(1974, 6, 1),
             gender="female",
             address="789 C St",
             email="carol@example.com",
@@ -68,7 +69,7 @@ def test_list_patients_pagination(client, db_session):
     for i in range(20):
         db_session.add(models.Patient(
             name=f"Patient {i}",
-            dob="1990-01-01",
+            dob=date(1990, 1, 1),
             gender="other",
             address=f"{i} Test Lane",
             email=f"patient{i}@example.com",

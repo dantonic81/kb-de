@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from app.db import models
 from app.db.models import Biometric, Patient
 from fastapi import status
@@ -14,7 +14,7 @@ def test_list_biometrics_patient_not_found(client):
     assert response.json()["detail"] == "Patient 9999 not found"
 
 def test_list_biometrics_empty(client, db_session):
-    patient = models.Patient(name="Test Patient", dob="1990-01-01")
+    patient = models.Patient(name="Test Patient", dob=date(1980, 5, 12))
     db_session.add(patient)
     db_session.commit()
 
@@ -27,7 +27,7 @@ def test_list_biometrics_empty(client, db_session):
     assert data["limit"] == 10
 
 def test_list_biometrics_with_data(client, db_session):
-    patient = models.Patient(name="Test Patient", dob="1990-01-01")
+    patient = models.Patient(name="Test Patient", dob=date(1990, 1, 1))
     db_session.add(patient)
     db_session.commit()
 
@@ -191,7 +191,7 @@ def test_upsert_biometric_patient_not_found(client):
     ]
 )
 def test_upsert_biometric_validation_error(client, db_session, payload, error_detail):
-    patient = models.Patient(name="Test Patient 3", dob="1990-01-01")
+    patient = models.Patient(name="Test Patient 3", dob=date(1990, 1, 1))
     db_session.add(patient)
     db_session.commit()
 

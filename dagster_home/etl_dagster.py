@@ -1,9 +1,9 @@
 from dagster import Definitions, job, op, ScheduleDefinition, DefaultScheduleStatus
-from app.etl.run_etl import main
+from app.etl.run_etl import run_etl
 
 @op
 def etl_op():
-    main()
+    run_etl()
 
 @job
 def etl_job():

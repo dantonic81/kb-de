@@ -3,6 +3,9 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from dotenv import load_dotenv
 import os
+import logging
+
+logger = logging.getLogger("alembic")
 
 # Load environment variables
 load_dotenv()
@@ -34,7 +37,7 @@ database_url = get_database_url(TEST_DB or MIGRATION_DB)
 
 # Inject the DB URL into Alembic's config
 config.set_main_option("sqlalchemy.url", database_url)
-print(f"\n🔧 Applying migrations to database: {database_url}\n")
+logger.info(f"\n🔧 Applying migrations to database: {database_url}\n")
 
 # Import all models for autogenerate support
 from app.db.base import Base

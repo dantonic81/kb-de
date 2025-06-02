@@ -27,3 +27,8 @@ Why Dagster over cron? ("Scalability and monitoring").
 Trend analysis methodology.
 
 
+
+run_etl.py - potential improvements: more detailed error reporting (row number, file name), structured logging (json) for better integration with log aggregators e.g. ELK
+integrate with monitoring tools (records processed, errors, duration)
+
+

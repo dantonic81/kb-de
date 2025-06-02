@@ -8,6 +8,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+from contextlib import contextmanager
+
 from app.db.models import Patient, Biometric
 from app.schemas.patient_schema import PatientSchema
 from app.schemas.biometric_schema import BiometricSchema
@@ -44,17 +46,36 @@ UNIT_CONVERSIONS = {
     }
 }
 
-
 # ---- Database ----
 
+_engine = None
+_Session = None
+
 def get_db_engine():
-    return create_engine(DATABASE_URL)
+    global _engine
+    if _engine is None:
+        _engine = create_engine(DATABASE_URL)
+    return _engine
 
+def get_sessionmaker():
+    global _Session
+    if _Session is None:
+        _Session = sessionmaker(bind=get_db_engine())
+    return _Session
+
+@contextmanager
 def get_db_session():
-    engine = get_db_engine()
-    Session = sessionmaker(bind=engine)
-    return Session()
-
+    """Context manager to get a DB session."""
+    Session = get_sessionmaker()
+    session = Session()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 # ---- Utility functions ----
 
@@ -86,7 +107,6 @@ def validate_biometric_ranges(row: dict) -> list:
         except ValueError:
             errors.append(f"Invalid value for {metric_type}")
     return errors
-
 
 # ---- Patient ETL ----
 
@@ -129,11 +149,11 @@ def process_patients(filepath: str):
         logger.warning("No valid patient records found.")
         return
 
-    upsert_patients(valid_rows)
+    with get_db_session() as session:
+        upsert_patients(session, valid_rows)
     save_invalid_patients(invalid_rows)
 
-def upsert_patients(records: list):
-    session = get_db_session()
+def upsert_patients(session, records: list):
     # Normalize dob to date and drop nulls
     for rec in records:
         try:
@@ -155,13 +175,11 @@ def upsert_patients(records: list):
             }
         )
         session.execute(stmt)
-        session.commit()
+        # session.commit() handled by context manager
         logger.info(f"Upserted {len(records)} patients")
     except Exception as e:
         logger.error(f"Failed to upsert patients: {e}")
-        session.rollback()
-    finally:
-        session.close()
+        raise
 
 def save_invalid_patients(invalid_rows: list):
     if not invalid_rows:
@@ -170,7 +188,6 @@ def save_invalid_patients(invalid_rows: list):
     path = "rejected/patients_invalid.json"
     pd.DataFrame(invalid_rows).to_json(path, orient="records", indent=2)
     logger.info(f"Saved {len(invalid_rows)} invalid patient records to {path}")
-
 
 # ---- Biometric ETL ----
 
@@ -253,7 +270,7 @@ def process_biometric_records(session, chunk: pd.DataFrame, patients_map: dict):
 def upsert_biometric_records(session, records):
     try:
         session.bulk_insert_mappings(Biometric, records)
-        session.commit()
+        # session.commit() handled by context manager
         logger.info(f"Inserted {len(records)} biometric records")
     except IntegrityError:
         session.rollback()
@@ -271,7 +288,7 @@ def upsert_biometric_records(session, records):
                     }
                 )
                 session.execute(stmt)
-                session.commit()
+                session.commit()  # This is needed per record here to not lose changes
             except Exception as e:
                 logger.error(f"Failed to upsert record: {e}")
                 session.rollback()
@@ -285,34 +302,37 @@ def save_invalid_biometrics(invalid_rows: list):
     logger.info(f"Saved {len(invalid_rows)} invalid biometric records to {path}")
 
 def process_biometrics():
-    session = get_db_session()
     all_invalid = []
     for file in get_simulated_files():
         logger.info(f"Processing biometric file: {file}")
         chunks, chunk_invalids = read_biometric_chunks(file)
         all_invalid.extend(chunk_invalids)
 
-        for chunk in chunks:
-            valid_chunk, invalid_chunk = validate_biometric_chunk(chunk)
-            all_invalid.extend(invalid_chunk)
+        with get_db_session() as session:
+            for chunk in chunks:
+                valid_chunk, invalid_rows = validate_biometric_chunk(chunk)
+                all_invalid.extend(invalid_rows)
 
-            emails = valid_chunk["patient_email"].unique().tolist()
-            patients_map = get_patients_map(session, emails)
-            records, invalid_rows = process_biometric_records(session, valid_chunk, patients_map)
-            all_invalid.extend(invalid_rows)
+                emails = valid_chunk["patient_email"].unique().tolist()
+                patients_map = get_patients_map(session, emails)
 
-            upsert_biometric_records(session, records)
+                records, invalids = process_biometric_records(session, valid_chunk, patients_map)
+                all_invalid.extend(invalids)
+
+                upsert_biometric_records(session, records)
+
     save_invalid_biometrics(all_invalid)
-    session.close()
 
+# ---- Main ETL ----
 
-# ---- Main runner ----
-
-def main():
-    logger.info("Starting ETL process")
+def run_etl():
+    logger.info("Starting Patient ETL")
     process_patients(PATIENTS_FILE)
+    logger.info("Patient ETL completed")
+
+    logger.info("Starting Biometric ETL")
     process_biometrics()
-    logger.info("ETL process completed")
+    logger.info("Biometric ETL completed")
 
 if __name__ == "__main__":
-    main()
+    run_etl()

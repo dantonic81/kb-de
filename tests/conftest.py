@@ -6,6 +6,7 @@ from app.main import app
 from app.db.session import get_db
 from fastapi.testclient import TestClient
 import pandas as pd
+from app.etl.run_etl import FILE_PREFIX, FILE_EXT
 
 
 # Add check_same_thread=False to allow multi-threaded access
@@ -73,3 +74,45 @@ def sample_biometric_data():
         "timestamp": ["2023-01-01T00:00:00"],
         "unit": ["mg/dL"]
     })
+
+
+@pytest.fixture(autouse=True)
+def setup_test_environment(monkeypatch):
+    """Override the database URL to use SQLite for testing"""
+    monkeypatch.setattr('app.etl.run_etl.DATABASE_URL', 'sqlite:///:memory:')
+    monkeypatch.setattr('app.etl.run_etl._engine', None)  # Reset engine
+    monkeypatch.setattr('app.etl.run_etl._Session', None)  # Reset sessionmaker
+
+@pytest.fixture(autouse=True)
+def setup_db_tables(db_engine):
+    """Ensure database tables are created before each test"""
+    from app.db.models import Base
+    Base.metadata.create_all(bind=db_engine)
+    yield
+    Base.metadata.drop_all(bind=db_engine)
+
+
+@pytest.fixture
+def test_patients_file(tmp_path):
+    """Create a temporary patients.json file for testing"""
+    data = [{
+        "name": "Test User",
+        "email": "test@example.com",
+        "dob": "1980-01-01",
+        "gender": "Male",
+        "address": "123 Test St",
+        "phone": "555-1234",
+        "sex": "M"
+    }, {
+        "name": "Invalid User",
+        "email": "invalid@example.com",
+        "dob": "1800-01-01",  # Changed from 3000 to 1800 to avoid timestamp issue
+        "gender": "Unknown",
+        "address": "456 Invalid St",
+        "phone": "555-5678",
+        "sex": "U"
+    }]
+
+    file_path = tmp_path / "patients.json"
+    pd.DataFrame(data).to_json(file_path, orient="records")
+    return str(file_path)

@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from contextlib import contextmanager
+from typing import Dict, List, Tuple, Iterator, Any
 
 from app.db.models import Patient, Biometric
 from app.schemas.patient_schema import PatientSchema
@@ -51,23 +52,43 @@ UNIT_CONVERSIONS = {
 _engine = None
 _Session = None
 
-def get_db_engine():
+
+def get_db_engine() -> Any:
+    """Get the database engine instance, creating it if it doesn't exist.
+
+    Returns:
+        sqlalchemy.engine.Engine: The database engine instance
+    """
     global _engine
     if _engine is None:
         _engine = create_engine(DATABASE_URL)
     return _engine
 
-def get_sessionmaker():
+
+def get_sessionmaker() -> Any:
+    """Get the SQLAlchemy sessionmaker, creating it if it doesn't exist.
+
+    Returns:
+        sqlalchemy.orm.sessionmaker: Configured sessionmaker instance
+    """
     global _Session
     if _Session is None:
         _Session = sessionmaker(bind=get_db_engine())
     return _Session
 
+
 @contextmanager
-def get_db_session():
-    """Context manager to get a DB session."""
-    Session = get_sessionmaker()
-    session = Session()
+def get_db_session() -> Iterator[Any]:
+    """Context manager to get a DB session.
+
+    Yields:
+        sqlalchemy.orm.Session: Database session
+
+    Raises:
+        Exception: Any exception that occurs during session usage
+    """
+    session_factory = get_sessionmaker()
+    session = session_factory()
     try:
         yield session
         session.commit()
@@ -77,23 +98,45 @@ def get_db_session():
     finally:
         session.close()
 
+
 # ---- Utility functions ----
 
 def normalize_units(value: float, unit: str, metric_type: str) -> float:
+    """Normalize units to standard values.
+
+    Args:
+        value: The value to convert
+        unit: The original unit of the value
+        metric_type: The type of metric being converted
+
+    Returns:
+        The converted value in standard units
+    """
     if metric_type in UNIT_CONVERSIONS and unit in UNIT_CONVERSIONS[metric_type]:
         return UNIT_CONVERSIONS[metric_type][unit](value)
     return value
 
-def validate_biometric_ranges(row: dict) -> list:
+
+def validate_biometric_ranges(row: Dict[str, Any]) -> List[str]:
+    """Validate biometric values against acceptable ranges.
+
+    Args:
+        row: Dictionary containing biometric data
+
+    Returns:
+        List of error messages for any validation failures
+    """
     errors = []
     metric_type = row["biometric_type"]
 
     if metric_type == "blood_pressure":
         try:
             systolic, diastolic = map(int, row["value"].split("/"))
-            if not (BIOMETRIC_RANGES["blood_pressure"]["systolic"][0] <= systolic <= BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]):
+            if not (BIOMETRIC_RANGES["blood_pressure"]["systolic"][0] <= systolic <=
+                    BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]):
                 errors.append(f"Systolic BP {systolic} out of range")
-            if not (BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0] <= diastolic <= BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]):
+            if not (BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0] <= diastolic <=
+                    BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]):
                 errors.append(f"Diastolic BP {diastolic} out of range")
         except ValueError:
             errors.append("Invalid blood pressure format")
@@ -108,16 +151,34 @@ def validate_biometric_ranges(row: dict) -> list:
             errors.append(f"Invalid value for {metric_type}")
     return errors
 
+
 # ---- Patient ETL ----
 
 def load_patient_data(filepath: str) -> pd.DataFrame:
+    """Load patient data from JSON file.
+
+    Args:
+        filepath: Path to the JSON file containing patient data
+
+    Returns:
+        DataFrame containing patient data or empty DataFrame if loading fails
+    """
     try:
         return pd.read_json(filepath)
     except Exception as e:
         logger.error(f"Failed to load patient JSON: {e}")
         return pd.DataFrame()
 
-def validate_patient_row(row: pd.Series) -> (bool, str):
+
+def validate_patient_row(row: pd.Series) -> Tuple[bool, str]:
+    """Validate a single patient record.
+
+    Args:
+        row: Pandas Series representing a patient record
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
     row_dict = row.dropna().to_dict()
     try:
         PatientSchema.validate(pd.DataFrame([row_dict]))
@@ -129,7 +190,13 @@ def validate_patient_row(row: pd.Series) -> (bool, str):
     except Exception as e:
         return False, str(e)
 
-def process_patients(filepath: str):
+
+def process_patients(filepath: str) -> None:
+    """Process patient data from file and load into database.
+
+    Args:
+        filepath: Path to the patient data file
+    """
     df = load_patient_data(filepath)
     if df.empty:
         logger.warning("No patient data loaded.")
@@ -153,7 +220,17 @@ def process_patients(filepath: str):
         upsert_patients(session, valid_rows)
     save_invalid_patients(invalid_rows)
 
-def upsert_patients(session, records: list):
+
+def upsert_patients(session: Any, records: List[Dict[str, Any]]) -> None:
+    """Upsert patient records into the database.
+
+    Args:
+        session: Database session
+        records: List of patient records to upsert
+
+    Raises:
+        Exception: If upsert operation fails
+    """
     # Normalize dob to date and drop nulls
     for rec in records:
         try:
@@ -175,13 +252,18 @@ def upsert_patients(session, records: list):
             }
         )
         session.execute(stmt)
-        # session.commit() handled by context manager
         logger.info(f"Upserted {len(records)} patients")
     except Exception as e:
         logger.error(f"Failed to upsert patients: {e}")
         raise
 
-def save_invalid_patients(invalid_rows: list):
+
+def save_invalid_patients(invalid_rows: List[Dict[str, Any]]) -> None:
+    """Save invalid patient records to a file.
+
+    Args:
+        invalid_rows: List of invalid patient records
+    """
     if not invalid_rows:
         return
     os.makedirs("rejected", exist_ok=True)
@@ -189,9 +271,15 @@ def save_invalid_patients(invalid_rows: list):
     pd.DataFrame(invalid_rows).to_json(path, orient="records", indent=2)
     logger.info(f"Saved {len(invalid_rows)} invalid patient records to {path}")
 
+
 # ---- Biometric ETL ----
 
-def get_simulated_files():
+def get_simulated_files() -> List[str]:
+    """Get list of biometric data files sorted by timestamp.
+
+    Returns:
+        List of file paths sorted by their embedded timestamp
+    """
     files = glob.glob(os.path.join(BIOMETRICS_DIR, f"{FILE_PREFIX}*{FILE_EXT}"))
     files.sort(key=lambda x: datetime.strptime(
         os.path.basename(x)[len(FILE_PREFIX):-len(FILE_EXT)],
@@ -199,7 +287,16 @@ def get_simulated_files():
     ))
     return files
 
-def read_biometric_chunks(csv_file: str):
+
+def read_biometric_chunks(csv_file: str) -> Tuple[Iterator[pd.DataFrame], List[Any]]:
+    """Read biometric data file in chunks.
+
+    Args:
+        csv_file: Path to the CSV file to read
+
+    Returns:
+        Tuple of (chunk iterator, list of invalid rows)
+    """
     invalid_rows = []
     try:
         chunks = pd.read_csv(
@@ -213,7 +310,16 @@ def read_biometric_chunks(csv_file: str):
         logger.error(f"Failed to load biometrics CSV {csv_file}: {e}")
         return [], []
 
-def validate_biometric_chunk(chunk: pd.DataFrame):
+
+def validate_biometric_chunk(chunk: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+    """Validate a chunk of biometric data.
+
+    Args:
+        chunk: DataFrame containing biometric records
+
+    Returns:
+        Tuple of (valid DataFrame, list of invalid rows as dicts)
+    """
     try:
         BiometricSchema.validate(chunk, lazy=True)
         return chunk, []
@@ -224,11 +330,32 @@ def validate_biometric_chunk(chunk: pd.DataFrame):
         invalid_rows = chunk.loc[invalid_indices].to_dict("records")
         return valid_chunk, invalid_rows
 
-def get_patients_map(session, emails: list):
+
+def get_patients_map(session: Any, emails: List[str]) -> Dict[str, int]:
+    """Get mapping of patient emails to their IDs.
+
+    Args:
+        session: Database session
+        emails: List of patient emails to look up
+
+    Returns:
+        Dictionary mapping emails to patient IDs
+    """
     patients = session.query(Patient).filter(Patient.email.in_(emails)).with_for_update().all()
     return {p.email: p.id for p in patients}
 
-def process_biometric_records(session, chunk: pd.DataFrame, patients_map: dict):
+
+def process_biometric_records(chunk: pd.DataFrame, patients_map: Dict[str, int]) -> Tuple[
+    List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Process and validate biometric records from a chunk.
+
+    Args:
+        chunk: DataFrame containing biometric records
+        patients_map: Dictionary mapping emails to patient IDs
+
+    Returns:
+        Tuple of (list of valid records, list of invalid rows)
+    """
     invalid_rows = []
     records = []
 
@@ -239,7 +366,7 @@ def process_biometric_records(session, chunk: pd.DataFrame, patients_map: dict):
 
     for _, row in chunk.iterrows():
         try:
-            errors = validate_biometric_ranges(row)
+            errors = validate_biometric_ranges(row.to_dict())
             if errors:
                 raise ValueError(", ".join(errors))
 
@@ -267,10 +394,16 @@ def process_biometric_records(session, chunk: pd.DataFrame, patients_map: dict):
 
     return records, invalid_rows
 
-def upsert_biometric_records(session, records):
+
+def upsert_biometric_records(session: Any, records: List[Dict[str, Any]]) -> None:
+    """Upsert biometric records into the database.
+
+    Args:
+        session: Database session
+        records: List of biometric records to upsert
+    """
     try:
         session.bulk_insert_mappings(Biometric, records)
-        # session.commit() handled by context manager
         logger.info(f"Inserted {len(records)} biometric records")
     except IntegrityError:
         session.rollback()
@@ -293,7 +426,13 @@ def upsert_biometric_records(session, records):
                 logger.error(f"Failed to upsert record: {e}")
                 session.rollback()
 
-def save_invalid_biometrics(invalid_rows: list):
+
+def save_invalid_biometrics(invalid_rows: List[Dict[str, Any]]) -> None:
+    """Save invalid biometric records to a file.
+
+    Args:
+        invalid_rows: List of invalid biometric records
+    """
     if not invalid_rows:
         return
     os.makedirs("rejected", exist_ok=True)
@@ -301,7 +440,9 @@ def save_invalid_biometrics(invalid_rows: list):
     pd.DataFrame(invalid_rows).to_json(path, orient="records", indent=2)
     logger.info(f"Saved {len(invalid_rows)} invalid biometric records to {path}")
 
-def process_biometrics():
+
+def process_biometrics() -> None:
+    """Process all biometric files and load data into database."""
     all_invalid = []
     for file in get_simulated_files():
         logger.info(f"Processing biometric file: {file}")
@@ -316,16 +457,18 @@ def process_biometrics():
                 emails = valid_chunk["patient_email"].unique().tolist()
                 patients_map = get_patients_map(session, emails)
 
-                records, invalids = process_biometric_records(session, valid_chunk, patients_map)
+                records, invalids = process_biometric_records(valid_chunk, patients_map)
                 all_invalid.extend(invalids)
 
                 upsert_biometric_records(session, records)
 
     save_invalid_biometrics(all_invalid)
 
+
 # ---- Main ETL ----
 
-def run_etl():
+def run_etl() -> None:
+    """Run the complete ETL process for patients and biometrics."""
     logger.info("Starting Patient ETL")
     process_patients(PATIENTS_FILE)
     logger.info("Patient ETL completed")
@@ -333,6 +476,7 @@ def run_etl():
     logger.info("Starting Biometric ETL")
     process_biometrics()
     logger.info("Biometric ETL completed")
+
 
 if __name__ == "__main__":
     run_etl()

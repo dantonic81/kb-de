@@ -4,7 +4,7 @@ import glob
 import pandas as pd
 import pandera as pa
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
@@ -12,10 +12,10 @@ from app.db.models import Patient, Biometric
 from app.schemas.patient_schema import PatientSchema
 from app.schemas.biometric_schema import BiometricSchema
 
-# Configure logging
+# Logging setup
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,9 @@ FILE_PREFIX = "biometrics_"
 FILE_EXT = ".csv"
 CHUNKSIZE = 1000
 
-# Biometric validation parameters
 BIOMETRIC_RANGES = {
-    "glucose": (70, 200),  # mg/dL
-    "weight": (30, 200),  # kg
+    "glucose": (70, 200),
+    "weight": (30, 200),
     "blood_pressure": {
         "systolic": (90, 140),
         "diastolic": (60, 90)
@@ -46,33 +45,34 @@ UNIT_CONVERSIONS = {
 }
 
 
+# ---- Database ----
+
+def get_db_engine():
+    return create_engine(DATABASE_URL)
+
 def get_db_session():
-    """Create and return a new database session"""
-    engine = create_engine(DATABASE_URL)
+    engine = get_db_engine()
     Session = sessionmaker(bind=engine)
     return Session()
 
 
+# ---- Utility functions ----
+
 def normalize_units(value: float, unit: str, metric_type: str) -> float:
-    """Convert values to standard units"""
     if metric_type in UNIT_CONVERSIONS and unit in UNIT_CONVERSIONS[metric_type]:
         return UNIT_CONVERSIONS[metric_type][unit](value)
     return value
 
-
 def validate_biometric_ranges(row: dict) -> list:
-    """Check if values are within expected ranges"""
     errors = []
     metric_type = row["biometric_type"]
 
     if metric_type == "blood_pressure":
         try:
             systolic, diastolic = map(int, row["value"].split("/"))
-            if not (BIOMETRIC_RANGES["blood_pressure"]["systolic"][0] <= systolic <=
-                    BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]):
+            if not (BIOMETRIC_RANGES["blood_pressure"]["systolic"][0] <= systolic <= BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]):
                 errors.append(f"Systolic BP {systolic} out of range")
-            if not (BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0] <= diastolic <=
-                    BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]):
+            if not (BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0] <= diastolic <= BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]):
                 errors.append(f"Diastolic BP {diastolic} out of range")
         except ValueError:
             errors.append("Invalid blood pressure format")
@@ -85,65 +85,63 @@ def validate_biometric_ranges(row: dict) -> list:
                     errors.append(f"{metric_type} value {value} out of range")
         except ValueError:
             errors.append(f"Invalid value for {metric_type}")
-
     return errors
 
 
-def load_patients(PATIENTS_FILE):
-    """Load and process patient data"""
-    invalid_patient_rows = []
-    valid_rows = []
+# ---- Patient ETL ----
 
+def load_patient_data(filepath: str) -> pd.DataFrame:
     try:
-        df = pd.read_json(PATIENTS_FILE)
+        return pd.read_json(filepath)
     except Exception as e:
         logger.error(f"Failed to load patient JSON: {e}")
+        return pd.DataFrame()
+
+def validate_patient_row(row: pd.Series) -> (bool, str):
+    row_dict = row.dropna().to_dict()
+    try:
+        PatientSchema.validate(pd.DataFrame([row_dict]))
+        dob = pd.to_datetime(row_dict["dob"]).date()
+        age = (datetime.now().date() - dob).days / 365
+        if age > 120 or age < 0:
+            return False, f"Implausible age: {age:.1f} years"
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+def process_patients(filepath: str):
+    df = load_patient_data(filepath)
+    if df.empty:
+        logger.warning("No patient data loaded.")
         return
 
-    # Validate each row
+    valid_rows, invalid_rows = [], []
     for _, row in df.iterrows():
-        row_dict = row.dropna().to_dict()
-        try:
-            PatientSchema.validate(pd.DataFrame([row_dict]))
-
-            # Age validation
-            dob = pd.to_datetime(row_dict["dob"]).date()
-            age = (datetime.now().date() - dob).days / 365
-            if age > 120 or age < 0:
-                raise ValueError(f"Implausible age: {age:.1f} years")
-
-            valid_rows.append(row_dict)
-        except Exception as e:
-            logger.error(f"Patient row validation failed: {e} -- {row_dict}")
-            row_with_error = row_dict.copy()
-            row_with_error["validation_error"] = str(e)
-            invalid_patient_rows.append(row_with_error)
+        is_valid, err = validate_patient_row(row)
+        if is_valid:
+            valid_rows.append(row.dropna().to_dict())
+        else:
+            row_dict = row.dropna().to_dict()
+            row_dict["validation_error"] = err
+            invalid_rows.append(row_dict)
 
     if not valid_rows:
-        logger.warning("No valid patient records to process.")
+        logger.warning("No valid patient records found.")
         return
 
-    # Process valid rows
-    df_valid = pd.DataFrame(valid_rows)
-    df_valid["dob"] = pd.to_datetime(df_valid["dob"], errors="coerce").dt.date
-    df_valid = df_valid.dropna(subset=["dob"])
+    upsert_patients(valid_rows)
+    save_invalid_patients(invalid_rows)
 
-    records = [
-        {
-            "email": row["email"],
-            "name": row["name"],
-            "dob": row["dob"],
-            "gender": row.get("gender"),
-            "address": row.get("address"),
-            "phone": row.get("phone"),
-            "sex": row.get("sex")
-        }
-        for _, row in df_valid.iterrows()
-    ]
-
+def upsert_patients(records: list):
     session = get_db_session()
+    # Normalize dob to date and drop nulls
+    for rec in records:
+        try:
+            rec["dob"] = pd.to_datetime(rec["dob"]).date()
+        except Exception:
+            rec["dob"] = None
+
     try:
-        # Upsert patients
         stmt = pg_insert(Patient).values(records)
         stmt = stmt.on_conflict_do_update(
             index_elements=["email"],
@@ -165,186 +163,156 @@ def load_patients(PATIENTS_FILE):
     finally:
         session.close()
 
-    # Save invalid records
-    if invalid_patient_rows:
-        os.makedirs("rejected", exist_ok=True)
-        pd.DataFrame(invalid_patient_rows).to_json(
-            "rejected/patients_invalid.json",
-            orient="records",
-            indent=2
-        )
-        logger.info(f"Saved {len(invalid_patient_rows)} invalid patient records")
+def save_invalid_patients(invalid_rows: list):
+    if not invalid_rows:
+        return
+    os.makedirs("rejected", exist_ok=True)
+    path = "rejected/patients_invalid.json"
+    pd.DataFrame(invalid_rows).to_json(path, orient="records", indent=2)
+    logger.info(f"Saved {len(invalid_rows)} invalid patient records to {path}")
 
+
+# ---- Biometric ETL ----
 
 def get_simulated_files():
-    """Get all simulation files in chronological order"""
     files = glob.glob(os.path.join(BIOMETRICS_DIR, f"{FILE_PREFIX}*{FILE_EXT}"))
-    # Sort files by timestamp in filename
     files.sort(key=lambda x: datetime.strptime(
         os.path.basename(x)[len(FILE_PREFIX):-len(FILE_EXT)],
         "%Y-%m-%dT%H-%M"
     ))
     return files
 
-
-def process_biometric_file(csv_file: str):
-    """Process a single biometric data file"""
-    session = get_db_session()
-    invalid_biometric_rows = []
-    csv_columns = ["patient_email", "biometric_type", "value", "unit", "timestamp"]
-
+def read_biometric_chunks(csv_file: str):
+    invalid_rows = []
     try:
-        if not os.path.exists(csv_file):
-            raise FileNotFoundError(f"Biometrics file not found: {csv_file}")
-
-        chunks = pd.read_csv(csv_file, chunksize=CHUNKSIZE,
-                             on_bad_lines=lambda bad: invalid_biometric_rows.append(bad) or None,
-                             engine='python')
-    except Exception as e:
-        logger.error(f"Failed to load biometrics CSV: {e}")
-        return
-
-    for chunk in chunks:
-        # Initial validation
-        missing_cols = set(csv_columns) - set(chunk.columns)
-        if missing_cols:
-            logger.error(f"Missing columns in CSV: {missing_cols}")
-            continue
-
-        chunk["timestamp"] = pd.to_datetime(
-            chunk["timestamp"],
-            format='%Y-%m-%dT%H:%M:%S',
-            errors='coerce'
+        chunks = pd.read_csv(
+            csv_file,
+            chunksize=CHUNKSIZE,
+            on_bad_lines=lambda bad: invalid_rows.append(bad) or None,
+            engine='python'
         )
-        valid_chunk = chunk.dropna(subset=csv_columns)
+        return chunks, invalid_rows
+    except Exception as e:
+        logger.error(f"Failed to load biometrics CSV {csv_file}: {e}")
+        return [], []
 
-        # Schema validation
+def validate_biometric_chunk(chunk: pd.DataFrame):
+    try:
+        BiometricSchema.validate(chunk, lazy=True)
+        return chunk, []
+    except pa.errors.SchemaErrors as err:
+        invalid_indices = err.failure_cases['index'].dropna()
+        valid_idx = set(chunk.index) - set(invalid_indices)
+        valid_chunk = chunk.loc[list(valid_idx)]
+        invalid_rows = chunk.loc[invalid_indices].to_dict("records")
+        return valid_chunk, invalid_rows
+
+def get_patients_map(session, emails: list):
+    patients = session.query(Patient).filter(Patient.email.in_(emails)).with_for_update().all()
+    return {p.email: p.id for p in patients}
+
+def process_biometric_records(session, chunk: pd.DataFrame, patients_map: dict):
+    invalid_rows = []
+    records = []
+
+    missing_emails = set(chunk["patient_email"].unique()) - set(patients_map.keys())
+    if missing_emails:
+        logger.error(f"Missing patients for emails: {missing_emails}")
+        chunk = chunk[~chunk["patient_email"].isin(missing_emails)]
+
+    for _, row in chunk.iterrows():
         try:
-            BiometricSchema.validate(valid_chunk, lazy=True)
-        except pa.errors.SchemaErrors as err:
-            logger.warning(f"Schema validation errors: {err.failure_cases}")
-            valid_idx = set(valid_chunk.index) - set(err.failure_cases['index'])
-            valid_chunk = valid_chunk.loc[list(valid_idx)]  # Convert set to list
-            # Get invalid indices safely
-            invalid_indices = err.failure_cases['index'].dropna()  # Remove NA values
-            if not invalid_indices.empty:
-                invalid_rows = chunk.loc[invalid_indices].to_dict('records')
-                invalid_biometric_rows.extend(invalid_rows)
+            errors = validate_biometric_ranges(row)
+            if errors:
+                raise ValueError(", ".join(errors))
 
-        # Patient lookup
-        patient_emails = valid_chunk["patient_email"].unique().tolist()
-        patients = {p.email: p.id for p in session.query(Patient)
-        .filter(Patient.email.in_(patient_emails))
-        .with_for_update()
-        .all()}
+            rec = {
+                "patient_id": patients_map[row["patient_email"]],
+                "biometric_type": row["biometric_type"],
+                "timestamp": row["timestamp"],
+                "unit": row["unit"]
+            }
 
-        missing_emails = set(patient_emails) - set(patients.keys())
-        if missing_emails:
-            logger.error(f"Missing patients for emails: {missing_emails}")
-            valid_chunk = valid_chunk[~valid_chunk["patient_email"].isin(missing_emails)]
+            if row["biometric_type"] == "blood_pressure":
+                systolic, diastolic = map(int, row["value"].split("/"))
+                rec.update({"systolic": systolic, "diastolic": diastolic, "value": None})
+            else:
+                value = float(row["value"])
+                if row["biometric_type"] == "weight":
+                    value = normalize_units(value, row["unit"], "weight")
+                    rec["unit"] = "kg"
+                rec.update({"value": value, "systolic": None, "diastolic": None})
 
-        # Process valid rows
-        records = []
-        for _, row in valid_chunk.iterrows():
+            records.append(rec)
+        except Exception as e:
+            logger.error(f"Row processing failed: {e}\nRow: {row.to_dict()}")
+            invalid_rows.append(row.to_dict())
+
+    return records, invalid_rows
+
+def upsert_biometric_records(session, records):
+    try:
+        session.bulk_insert_mappings(Biometric, records)
+        session.commit()
+        logger.info(f"Inserted {len(records)} biometric records")
+    except IntegrityError:
+        session.rollback()
+        logger.info("Duplicate detected, switching to individual upserts")
+        for rec in records:
             try:
-                # Range validation
-                range_errors = validate_biometric_ranges(row)
-                if range_errors:
-                    raise ValueError(", ".join(range_errors))
-
-                record = {
-                    "patient_id": patients[row["patient_email"]],
-                    "biometric_type": row["biometric_type"],
-                    "timestamp": row["timestamp"],
-                    "unit": row["unit"]
-                }
-
-                if row["biometric_type"] == "blood_pressure":
-                    systolic, diastolic = map(int, row["value"].split("/"))
-                    record.update({
-                        "systolic": systolic,
-                        "diastolic": diastolic,
-                        "value": None
-                    })
-                else:
-                    value = float(row["value"])
-                    if row["biometric_type"] == "weight":
-                        value = normalize_units(value, row["unit"], "weight")
-                        record["unit"] = "kg"
-                    record.update({
-                        "value": value,
-                        "systolic": None,
-                        "diastolic": None
-                    })
-
-                records.append(record)
-            except Exception as e:
-                logger.error(f"Row processing failed: {e}\nRow: {row.to_dict()}")
-                invalid_biometric_rows.append(row.to_dict())
-
-        # Batch upsert
-        if records:
-            try:
-                # First attempt direct insert
-                session.bulk_insert_mappings(Biometric, records)
+                stmt = pg_insert(Biometric).values(rec)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['patient_id', 'biometric_type', 'timestamp'],
+                    set_={
+                        "value": stmt.excluded.value,
+                        "systolic": stmt.excluded.systolic,
+                        "diastolic": stmt.excluded.diastolic,
+                        "unit": stmt.excluded.unit
+                    }
+                )
+                session.execute(stmt)
                 session.commit()
-                logger.info(f"Inserted {len(records)} new biometric records")
-            except IntegrityError:
+            except Exception as e:
+                logger.error(f"Failed to upsert record: {e}")
                 session.rollback()
-                logger.info("Duplicate detected, switching to individual upserts")
 
-                # Fallback to one-by-one upsert
-                for record in records:
-                    try:
-                        stmt = pg_insert(Biometric).values(record)
-                        stmt = stmt.on_conflict_do_update(
-                            index_elements=['patient_id', 'biometric_type', 'timestamp'],
-                            set_={
-                                "value": stmt.excluded.value,
-                                "systolic": stmt.excluded.systolic,
-                                "diastolic": stmt.excluded.diastolic,
-                                "unit": stmt.excluded.unit
-                            }
-                        )
-                        session.execute(stmt)
-                        session.commit()
-                    except Exception as e:
-                        logger.error(f"Failed to upsert record: {e}")
-                        session.rollback()
+def save_invalid_biometrics(invalid_rows: list):
+    if not invalid_rows:
+        return
+    os.makedirs("rejected", exist_ok=True)
+    path = "rejected/biometrics_invalid.json"
+    pd.DataFrame(invalid_rows).to_json(path, orient="records", indent=2)
+    logger.info(f"Saved {len(invalid_rows)} invalid biometric records to {path}")
 
-    # Save invalid records
-    if invalid_biometric_rows:
-        os.makedirs("rejected", exist_ok=True)
-        invalid_file = os.path.join("rejected", f"invalid_{os.path.basename(csv_file)}")
-        pd.DataFrame(invalid_biometric_rows).to_csv(invalid_file, index=False)
-        logger.info(f"Saved {len(invalid_biometric_rows)} invalid biometric records to {invalid_file}")
+def process_biometrics():
+    session = get_db_session()
+    all_invalid = []
+    for file in get_simulated_files():
+        logger.info(f"Processing biometric file: {file}")
+        chunks, chunk_invalids = read_biometric_chunks(file)
+        all_invalid.extend(chunk_invalids)
 
+        for chunk in chunks:
+            valid_chunk, invalid_chunk = validate_biometric_chunk(chunk)
+            all_invalid.extend(invalid_chunk)
+
+            emails = valid_chunk["patient_email"].unique().tolist()
+            patients_map = get_patients_map(session, emails)
+            records, invalid_rows = process_biometric_records(session, valid_chunk, patients_map)
+            all_invalid.extend(invalid_rows)
+
+            upsert_biometric_records(session, records)
+    save_invalid_biometrics(all_invalid)
     session.close()
 
 
-def process_simulated_biometrics():
-    """Process all available simulated files"""
-    files = get_simulated_files()
-    if not files:
-        logger.info("No simulated files found")
-        return
-
-    for file in files:
-        logger.info(f"Processing simulated file: {file}")
-        process_biometric_file(file)
-
+# ---- Main runner ----
 
 def main():
-    """Run the ETL pipeline"""
-    try:
-        logger.info("Starting ETL pipeline")
-        load_patients(PATIENTS_FILE)
-        process_simulated_biometrics()
-        logger.info("ETL pipeline completed successfully")
-    except Exception as e:
-        logger.critical(f"ETL pipeline failed: {e}")
-        raise
-
+    logger.info("Starting ETL process")
+    process_patients(PATIENTS_FILE)
+    process_biometrics()
+    logger.info("ETL process completed")
 
 if __name__ == "__main__":
     main()

@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
 # Install system dependencies needed for PostgreSQL and other packages
-RUN apt-get update && apt-get install -y gcc libpq-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev postgresql-client && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements.txt and install Python dependencies
 COPY requirements.txt .
@@ -24,6 +24,3 @@ RUN chmod +x /entrypoint.sh
 
 # Set default entrypoint
 ENTRYPOINT ["/entrypoint.sh"]
-
-## Default command can be overridden by docker-compose or CLI
-#CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

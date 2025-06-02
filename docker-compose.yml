@@ -17,24 +17,24 @@ services:
       timeout: 3s
       retries: 5
 
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: pgadmin
-    env_file:
-      - .env
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    healthcheck:
-      test: [ "CMD-SHELL", "nc -z -w 1 localhost 80 >/dev/null && echo 'Connection successful' || exit 1" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+#  pgadmin:
+#    image: dpage/pgadmin4
+#    container_name: pgadmin
+#    env_file:
+#      - .env
+#    restart: unless-stopped
+#    ports:
+#      - "8080:80"
+#    depends_on:
+#      db:
+#        condition: service_healthy
+#    volumes:
+#      - pgadmin_data:/var/lib/pgadmin
+#    healthcheck:
+#      test: [ "CMD-SHELL", "nc -z -w 1 localhost 80 >/dev/null && echo 'Connection successful' || exit 1" ]
+#      interval: 30s
+#      timeout: 10s
+#      retries: 3
 
   migrate:
     build: .
@@ -47,24 +47,6 @@ services:
       db:
         condition: service_healthy
     restart: "no"
-
-  etl:
-    build:
-      context: .
-      dockerfile: Dockerfile.etl
-    container_name: etl
-    environment:
-      - PYTHONPATH=/app
-    env_file:
-      - .env
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      db:
-        condition: service_healthy
-    restart: no
-    volumes:
-      - ./etl_output:/app/rejected
 
   api:
     build: .
@@ -100,6 +82,7 @@ services:
     volumes:
       - .:/app
       - ./dagster_home:/app/dagster_home
+      - ./etl_output:/app/rejected
     restart: unless-stopped
 
   dagster-daemon:

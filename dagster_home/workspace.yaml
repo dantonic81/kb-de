@@ -11,3 +11,7 @@ load_from:
       relative_path: "time_series_simulator_dagster.py"
       location_name: "time_series_simulator_dagster"
       working_directory: "/app/dagster_home"
+  - python_file:
+      relative_path: "trend_analyzer_dagster.py"
+      location_name: "trend_analyzer_dagster"
+      working_directory: "/app/dagster_home"

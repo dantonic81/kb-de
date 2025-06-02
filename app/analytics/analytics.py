@@ -1,28 +1,44 @@
+import os
 import pandas as pd
+from typing import Dict
 from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
-import os
+from sqlalchemy.exc import SQLAlchemyError
+from app.db.models import PatientBiometricHourlySummary
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@db:5432/mydb")
+# Setup
+DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://user:pass@db:5432/mydb")
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 
-# Assuming you have your ORM model defined somewhere like this:
-from app.db.models import PatientBiometricHourlySummary  # adjust import path accordingly
+def get_basic_biometrics_query() -> str:
+    """
+    Generate SQL query to retrieve non-null glucose and weight biometric data
+    truncated to the hour level.
 
-def analytics_aggregate_biometrics():
-    query_basic = """
+    Returns:
+        str: SQL query string
+    """
+    return """
         SELECT
             patient_id,
             biometric_type,
             date_trunc('hour', timestamp) AS hour_start,
             value
         FROM biometrics
-        WHERE biometric_type IN ('glucose', 'weight')
+        WHERE biometric_type IN ('glucose', 'weight') AND value IS NOT NULL
     """
 
-    query_bp = """
+def get_blood_pressure_query() -> str:
+    """
+    Generate SQL query to retrieve non-null systolic and diastolic blood pressure data,
+    each labeled with their own biometric_type, truncated to the hour level.
+
+    Returns:
+        str: SQL query string
+    """
+    return """
         SELECT
             patient_id,
             'blood_pressure_systolic' AS biometric_type,
@@ -42,16 +58,32 @@ def analytics_aggregate_biometrics():
         WHERE biometric_type = 'blood_pressure' AND diastolic IS NOT NULL
     """
 
+def load_biometrics_data() -> pd.DataFrame:
+    """
+    Load and combine biometric data (glucose, weight, blood pressure) from the database.
+
+    Returns:
+        pd.DataFrame: Combined biometric data with columns:
+                      ['patient_id', 'biometric_type', 'hour_start', 'value']
+    """
     with engine.begin() as conn:
-        df_basic = pd.read_sql(query_basic, conn)
-        df_bp = pd.read_sql(query_bp, conn)
+        df_basic = pd.read_sql(get_basic_biometrics_query(), conn)
+        df_bp = pd.read_sql(get_blood_pressure_query(), conn)
 
-    df = pd.concat([df_basic, df_bp], ignore_index=True)
+    combined_df = pd.concat([df_basic, df_bp], ignore_index=True)
+    return combined_df
 
-    if df.empty:
-        print("No data found in biometrics table.")
-        return
+def aggregate_hourly(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregate biometric data by patient, biometric type, and hour.
 
+    Args:
+        df (pd.DataFrame): Raw biometric data.
+
+    Returns:
+        pd.DataFrame: Aggregated hourly metrics including:
+                      min_value, max_value, avg_value, and count.
+    """
     agg_df = df.groupby(
         ['patient_id', 'biometric_type', 'hour_start']
     ).agg(
@@ -61,28 +93,65 @@ def analytics_aggregate_biometrics():
         count=('value', 'count')
     ).reset_index()
 
-    # Batch upsert using SQLAlchemy ORM session and insert().on_conflict_do_update()
+    agg_df['avg_value'] = agg_df['avg_value'].round(2)
+    return agg_df
+
+def upsert_aggregates(agg_df: pd.DataFrame) -> int:
+    """
+    Upsert aggregated biometric data into the summary table.
+
+    Args:
+        agg_df (pd.DataFrame): Aggregated biometric data.
+
+    Returns:
+        int: Number of records upserted.
+
+    Raises:
+        RuntimeError: If the upsert operation fails.
+    """
+    table = PatientBiometricHourlySummary.__table__
+    records: list[Dict] = agg_df.to_dict(orient='records')
+
+    stmt = insert(table).values(records)
+    update_cols = {
+        'min_value': stmt.excluded.min_value,
+        'max_value': stmt.excluded.max_value,
+        'avg_value': stmt.excluded.avg_value,
+        'count': stmt.excluded.count
+    }
+
     with Session() as session:
-        table = PatientBiometricHourlySummary.__table__
-        records = agg_df.to_dict(orient='records')
+        try:
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=['patient_id', 'biometric_type', 'hour_start'],
+                    set_=update_cols
+                )
+            )
+            session.commit()
+            return len(records)
+        except SQLAlchemyError as e:
+            session.rollback()
+            raise RuntimeError(f"Upsert failed: {e}")
 
-        stmt = insert(table).values(records)
+def analytics_aggregate_biometrics() -> None:
+    """
+    Main ETL function that:
+    - Loads biometric data
+    - Aggregates it hourly
+    - Upserts it into a summary table
+    """
+    print("Starting analytics aggregation job...")
 
-        update_cols = {
-            'min_value': stmt.excluded.min_value,
-            'max_value': stmt.excluded.max_value,
-            'avg_value': stmt.excluded.avg_value,
-            'count': stmt.excluded.count
-        }
+    df = load_biometrics_data()
+    if df.empty:
+        print("No data found in biometrics table.")
+        return
 
-        upsert_stmt = stmt.on_conflict_do_update(
-            index_elements=['patient_id', 'biometric_type', 'hour_start'],
-            set_=update_cols
-        )
-        session.execute(upsert_stmt)
-        session.commit()
+    agg_df = aggregate_hourly(df)
+    row_count = upsert_aggregates(agg_df)
 
-    print(f"Aggregated and upserted {len(agg_df)} rows.")
+    print(f"Aggregated and upserted {row_count} rows.")
 
 if __name__ == "__main__":
     analytics_aggregate_biometrics()

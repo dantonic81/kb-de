@@ -12,8 +12,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev postgresql-client && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements.txt and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-subset-dockerfile.txt .
+RUN pip install --no-cache-dir -r requirements-subset-dockerfile.txt
 
 # Copy the rest of your application code and entrypoint script
 COPY . .

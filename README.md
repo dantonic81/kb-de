@@ -32,3 +32,4 @@ run_etl.py - potential improvements: more detailed error reporting (row number, 
 integrate with monitoring tools (records processed, errors, duration)
 
 
+get yourself a cup of coffee if you have a slower internet connection :)

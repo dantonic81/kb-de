@@ -41,22 +41,22 @@ This project demonstrates a backend data integration system designed to ingest, 
 
 **The system is composed of:**
 
-- ETL Pipeline: Extracts structured and unstructured health data, performs validation, normalization, and transformation, and loads it into a database.
+- **ETL Pipeline:** Extracts structured and unstructured health data, performs validation, normalization, and transformation, and loads it into a database.
 
-- RESTful API: Built with FastAPI, this service exposes endpoints for accessing patient and biometric data, supporting CRUD operations and analytical queries.
+- **RESTful API:** Built with FastAPI, this service exposes endpoints for accessing patient and biometric data, supporting CRUD operations and analytical queries.
 
-- Database Layer: PostgreSQL schema designed for efficient storage and querying of patient records, biometric readings, and analytical metrics.
+- **Database Layer:** PostgreSQL schema designed for efficient storage and querying of patient records, biometric readings, and analytical metrics.
 
-- Analytics Engine: Hourly cron job processes biometric readings to generate derived metrics (min, max, avg), optimized for large datasets via batch processing.
+- **Analytics Engine:** Hourly cron job processes biometric readings to generate derived metrics (min, max, avg), optimized for large datasets via batch processing.
 
-- Validation & Error Handling: Robust handling of missing values, invalid formats, and outliers ensures the pipeline is resilient to real-world data inconsistencies.
+- **Validation & Error Handling:** Robust handling of missing values, invalid formats, and outliers ensures the pipeline is resilient to real-world data inconsistencies.
 
-- Job Orchestration & Observability: Managed with Dagster, offering UI-based visibility and control over scheduled and ad-hoc jobs.
+- **Job Orchestration & Observability:** Managed with Dagster, offering UI-based visibility and control over scheduled and ad-hoc jobs.
 
-- Infrastructure: Containerized using Docker for portability and local orchestration.
+- **Infrastructure:** Containerized using Docker for portability and local orchestration.
 
 
-**This project can support:**
+**This project can support various use cases like:**
 
 - Continuous health monitoring for clinics
 
@@ -94,14 +94,14 @@ This solution is designed with maintainability, scalability, and observability i
 ### Key Components
 
 
-| Service          | Description                                                               |
-|------------------|---------------------------------------------------------------------------|
-| `db`             | PostgreSQL 15 database used as the central data store.                    |
-| `migrate`        | One-shot container that applies database schema migrations via Alembic.   |
-| `pgadmin`        | Web-based admin interface for PostgreSQL.                                 |
-| `api`            | FastAPI application exposing HTTP endpoints and applying DB migrations.   |
-| `dagster`        | Dagster webserver for viewing and managing data pipelines.                |
-| `dagster-daemon` | Background scheduler and job runner for Dagster.                          |
+| Service          | Description                                                             |
+|------------------|-------------------------------------------------------------------------|
+| `db`             | PostgreSQL 15 database used as the central data store.                  |
+| `migrate`        | One-shot container that applies database schema migrations via Alembic. |
+| `pgadmin`        | Web-based admin interface for PostgreSQL. (optional)                    |
+| `api`            | FastAPI application exposing HTTP endpoints.                            |
+| `dagster`        | Dagster webserver for viewing and managing data pipelines.              |
+| `dagster-daemon` | Background scheduler and job runner for Dagster.                        |
 
 
 
@@ -114,14 +114,14 @@ This solution is designed with maintainability, scalability, and observability i
 
 
 
-` Makefile Commands:` 
+**Makefile Commands:** 
 
-| Command     | Description                                 |
-|-------------|---------------------------------------------|
+| Command     | Description                                  |
+|-------------|----------------------------------------------|
 | `make up`   | Builds and starts all services               |
 | `make down` | Stops and removes services and containers    |
 | `make logs` | Shows logs for all running containers        |
-| `make test` | Runs the test suite                         |
+| `make test` | Runs the test suite                          |
 
 
 ## Configuration Details
@@ -147,59 +147,59 @@ PostgreSQL database configuration is specified in the .env file.
 ```
 📁 project-root/
 │
-├──📁 alembic/                     # Database migration scripts
+├──📁 alembic/                   # Database migration scripts
 │   ├── env.py                   # Migration environment config
 │   ├── script.py.mako           # Migration script template
-│   └──📁 versions/                # Generated migration scripts
+│   └──📁 versions/              # Generated migration scripts
 │       ├── 8002a82dd77c_...     # Specific migration
 │       └── d5233a8698da_...     # Initial migration
 │
-├──📁 app/                         # Main application code
-│   ├──📁 analytics/               # Analytics processing
+├──📁 app/                       # Main application code
+│   ├──📁 analytics/             # Analytics processing
 │   │   ├── analytics.py         # Core analytics logic
 │   │   └── trend_analyzer.py    # Trend analysis
 │   │
-│   ├──📁 api/                     # API endpoints
+│   ├──📁 api/                   # API endpoints
 │   │   ├── biometrics.py        # Biometrics API
 │   │   └── patients.py          # Patients API
 │   │
-│   ├──📁 core/                    # Core application setup
+│   ├──📁 core/                  # Core application setup
 │   │   └── config.py            # Configuration management
 │   │
-│   ├──📁 db/                      # Database interactions
+│   ├──📁 db/                    # Database interactions
 │   │   ├── base.py              # Base database models
 │   │   ├── models.py            # Data models
 │   │   └── session.py           # Database session handling
 │   │
-│   ├──📁 etl/                     # ETL processes
+│   ├──📁 etl/                   # ETL processes
 │   │   └── run_etl.py           # ETL pipeline execution
 │   │
-│   ├──📁 schemas/                 # Data validation schemas
+│   ├──📁 schemas/               # Data validation schemas
 │   │   ├── biometric.py         # Biometric schemas
 │   │   ├── patient.py           # Patient schemas
 │   │   └── ...                  # Other schema definitions
 │   │
 │   └── main.py                  # Application entry point
 │
-├──📁 dagster_home/                # Dagster data orchestration
+├──📁 dagster_home/              # Dagster data orchestration
 │   ├── *.py                     # Dagster pipeline definitions
 │   ├── dagster.yaml             # Dagster configuration
 │   ├── event_logs/              # Execution logs
 │   └── workspace.yaml           # Workspace configuration
 │
-├──📁 data/                        # Data files and generators
+├──📁 data/                      # Data files and generators
 │   ├── biometrics.csv           # Sample biometric data
 │   ├── patients.json            # Patient records
 │   └── time_series_simulator.py # Data generator
 │
-├──📁 tests/                       # Test suite
-│   ├──📁 analytics/               # Analytics tests
-│   ├──📁 api/                     # API tests
+├──📁 tests/                     # Test suite
+│   ├──📁 analytics/             # Analytics tests
+│   ├──📁 api/                   # API tests
 │   │   └── v1/                  # API version tests
-│   ├──📁 integration/             # Integration tests
-│   └──📁 unit/                    # Unit tests
+│   ├──📁 integration/           # Integration tests
+│   └──📁 unit/                  # Unit tests
 │
-├──📁 etl_output/                  # ETL process outputs
+├──📁 etl_output/                # ETL process outputs
 │   └── invalid_*.csv/json       # Invalid records
 │
 ├── docker-compose.yml           # Container orchestration
@@ -226,7 +226,7 @@ PostgreSQL database configuration is specified in the .env file.
 
 _Note: On slower connections, the initial Docker build may take several minutes — now’s a good time for a coffee refill._
 
-_Also, I've provided a working pgAdmin service (credentials provided in the .env file), so if you need it, make sure to uncomment it in docker-compose.yml before running the following command_
+_Also, I've provided a working **pgAdmin** service (credentials provided in the .env file), so if you need it, make sure to uncomment it in **docker-compose.yml** before running the following command_
 
     
 
@@ -258,13 +258,16 @@ Dagster UI is available at [http://localhost:3000](http://localhost:3000)
 - The Dagster daemon automatically executes scheduled jobs every hour.
 
 
-The patient biometrics analysis system comprises four key batch jobs executed in a logical sequence:
+**The patient biometrics analysis system comprises four key batch jobs executed in a logical sequence:**
 
 1. Run `simulate_time_series_job` to generate synthetic biometrics data as timestamped CSV files.
 
+
 2. Run `etl_job` to extract, validate, and load this data into the database (`patients` and `biometrics` tables).
 
+
 3. Run `aggregate_biometrics_job` to compute hourly summaries and populate the `patient_biometric_hourly_summary` table.
+
 
 4. Run `trend_analyzer_job` to classify biometric trends and store them in the `biometric_trends` table.
 
@@ -563,9 +566,9 @@ ReDoc: http://localhost:8000/redoc
 
 - **Anomaly Detection** — Leverage ML models to flag unusual biometric patterns more accurately.
 
-- Support for multi-tenant architecture
+- **Support for Multi-tenant Architecture** - Enable isolated data and configurations for multiple clients within a single deployment.
 
-- Integration with visualization tools (e.g. Metabase or Superset)
+- **Integration with Visualization Tools** - Connect with analytics platforms like Metabase or Superset for enhanced data exploration and dashboarding.
 
 
 ## Limitations
@@ -581,7 +584,7 @@ ReDoc: http://localhost:8000/redoc
 
 
 
-## CI/CD or Deployment
+## CI/CD
 
 This project is designed for local development. Deployment to cloud infrastructure (e.g., AWS, GCP) is out of scope but could be integrated with Terraform and CI pipelines.
 

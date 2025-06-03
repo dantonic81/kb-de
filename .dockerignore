@@ -23,4 +23,5 @@ dagster_home/runs/
 dagster_home/schedules/
 dagster_home/storage/
 biometrics_simulated
-
+Makefile
+Screenshots/

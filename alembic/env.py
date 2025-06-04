@@ -4,6 +4,8 @@ from alembic import context
 from dotenv import load_dotenv
 import os
 import logging
+# Import all models for autogenerate support
+from app.db.models import *
 
 logger = logging.getLogger("alembic")
 
@@ -39,9 +41,6 @@ database_url = get_database_url(TEST_DB or MIGRATION_DB)
 config.set_main_option("sqlalchemy.url", database_url)
 logger.info(f"\n🔧 Applying migrations to database: {database_url}\n")
 
-# Import all models for autogenerate support
-from app.db.base import Base
-from app.db.models import *
 
 target_metadata = Base.metadata
 
@@ -68,10 +67,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

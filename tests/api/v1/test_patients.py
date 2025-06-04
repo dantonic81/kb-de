@@ -33,7 +33,7 @@ def test_list_patients_with_data(client, db_session):
             address="123 A St",
             email="alice@example.com",
             phone="1234567890",
-            sex="F"
+            sex="F",
         ),
         models.Patient(
             name="Bob",
@@ -42,7 +42,7 @@ def test_list_patients_with_data(client, db_session):
             address="456 B St",
             email="bob@example.com",
             phone="2345678901",
-            sex="M"
+            sex="M",
         ),
         models.Patient(
             name="Carol",
@@ -51,7 +51,7 @@ def test_list_patients_with_data(client, db_session):
             address="789 C St",
             email="carol@example.com",
             phone="3456789012",
-            sex="F"
+            sex="F",
         ),
     ]
     db_session.add_all(patients)
@@ -67,15 +67,17 @@ def test_list_patients_with_data(client, db_session):
 
 def test_list_patients_pagination(client, db_session):
     for i in range(20):
-        db_session.add(models.Patient(
-            name=f"Patient {i}",
-            dob=date(1990, 1, 1),
-            gender="other",
-            address=f"{i} Test Lane",
-            email=f"patient{i}@example.com",
-            phone=f"555000{i:03d}",
-            sex="O"
-        ))
+        db_session.add(
+            models.Patient(
+                name=f"Patient {i}",
+                dob=date(1990, 1, 1),
+                gender="other",
+                address=f"{i} Test Lane",
+                email=f"patient{i}@example.com",
+                phone=f"555000{i:03d}",
+                sex="O",
+            )
+        )
     db_session.commit()
 
     response = client.get("/patients/?skip=10&limit=5")

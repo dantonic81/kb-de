@@ -6,12 +6,12 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 
-
 # tests for 2nd endpoint
 def test_list_biometrics_patient_not_found(client):
     response = client.get("/biometrics/9999")  # non-existent patient
     assert response.status_code == 404
     assert response.json()["detail"] == "Patient 9999 not found"
+
 
 def test_list_biometrics_empty(client, db_session):
     patient = models.Patient(name="Test Patient", dob=date(1980, 5, 12))
@@ -26,6 +26,7 @@ def test_list_biometrics_empty(client, db_session):
     assert data["skip"] == 0
     assert data["limit"] == 10
 
+
 def test_list_biometrics_with_data(client, db_session):
     patient = models.Patient(name="Test Patient", dob=date(1990, 1, 1))
     db_session.add(patient)
@@ -38,7 +39,7 @@ def test_list_biometrics_with_data(client, db_session):
             biometric_type="weight",
             value=70.0 + i,
             unit="kg",
-            timestamp=datetime.utcnow() - timedelta(days=i)
+            timestamp=datetime.utcnow() - timedelta(days=i),
         )
         for i in range(5)
     ]
@@ -50,7 +51,7 @@ def test_list_biometrics_with_data(client, db_session):
             systolic=120 + i,
             diastolic=80 + i,
             unit="mmHg",
-            timestamp=datetime.utcnow() - timedelta(days=10 + i)
+            timestamp=datetime.utcnow() - timedelta(days=10 + i),
         )
         for i in range(3)
     ]
@@ -100,7 +101,7 @@ def test_upsert_biometric_create(client, db_session, db_engine):
         "unit": "kg",
         "timestamp": datetime.utcnow().isoformat(),
         "systolic": None,
-        "diastolic": None
+        "diastolic": None,
     }
 
     response = client.post(f"/biometrics/{patient.id}", json=payload)
@@ -127,7 +128,7 @@ def test_upsert_biometric_update(client, db_engine, db_session):
         biometric_type="weight",
         value=70.5,
         unit="kg",
-        timestamp=timestamp
+        timestamp=timestamp,
     )
     db_session.add(biometric)
     db_session.commit()
@@ -139,7 +140,7 @@ def test_upsert_biometric_update(client, db_engine, db_session):
         "unit": "kg",
         "timestamp": timestamp.isoformat(),
         "systolic": None,
-        "diastolic": None
+        "diastolic": None,
     }
 
     response = client.post(f"/biometrics/{patient.id}", json=payload)
@@ -155,7 +156,7 @@ def test_upsert_biometric_patient_not_found(client):
         "unit": "kg",
         "timestamp": datetime.utcnow().isoformat(),
         "systolic": None,
-        "diastolic": None
+        "diastolic": None,
     }
 
     response = client.post("/biometrics/9999", json=payload)  # Nonexistent patient ID
@@ -173,9 +174,9 @@ def test_upsert_biometric_patient_not_found(client):
                 "unit": "mmHg",
                 "timestamp": datetime.utcnow().isoformat(),
                 "systolic": None,
-                "diastolic": 80
+                "diastolic": 80,
             },
-            "Both systolic and diastolic are required for blood pressure"
+            "Both systolic and diastolic are required for blood pressure",
         ),
         (
             {
@@ -184,11 +185,11 @@ def test_upsert_biometric_patient_not_found(client):
                 "unit": "mmHg",
                 "timestamp": datetime.utcnow().isoformat(),
                 "systolic": 120,
-                "diastolic": None
+                "diastolic": None,
             },
-            "Both systolic and diastolic are required for blood pressure"
+            "Both systolic and diastolic are required for blood pressure",
         ),
-    ]
+    ],
 )
 def test_upsert_biometric_validation_error(client, db_session, payload, error_detail):
     patient = models.Patient(name="Test Patient 3", dob=date(1990, 1, 1))
@@ -198,6 +199,7 @@ def test_upsert_biometric_validation_error(client, db_session, payload, error_de
     response = client.post(f"/biometrics/{patient.id}", json=payload)
     assert response.status_code == 422
     assert response.json()["detail"] == error_detail
+
 
 # tests for 4th endpoint
 @pytest.mark.usefixtures("db_session")
@@ -212,7 +214,7 @@ def test_delete_biometric_success(client: TestClient, db_session):
         biometric_type="weight",
         value=70.5,
         unit="kg",
-        timestamp=datetime(2024, 1, 1, 10, 0, 0)
+        timestamp=datetime(2024, 1, 1, 10, 0, 0),
     )
     db_session.add(biometric)
     db_session.commit()
@@ -226,12 +228,14 @@ def test_delete_biometric_success(client: TestClient, db_session):
     deleted = db_session.query(Biometric).get(biometric.id)
     assert deleted is None
 
+
 @pytest.mark.usefixtures("db_session")
 def test_delete_biometric_not_found(client: TestClient):
     # Delete non-existing ID
     response = client.delete("/biometrics/99999")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert "not found" in response.json()["detail"].lower()
+
 
 @pytest.mark.usefixtures("db_session")
 def test_delete_biometric_db_error(client: TestClient, monkeypatch, db_session):
@@ -245,13 +249,14 @@ def test_delete_biometric_db_error(client: TestClient, monkeypatch, db_session):
         biometric_type="weight",
         value=70.5,
         unit="kg",
-        timestamp=datetime(2024, 1, 1, 10, 0, 0)
+        timestamp=datetime(2024, 1, 1, 10, 0, 0),
     )
     db_session.add(biometric)
     db_session.commit()
 
     # Monkeypatch db_session.commit to raise SQLAlchemyError
     from sqlalchemy.exc import SQLAlchemyError
+
     def raise_error():
         raise SQLAlchemyError("DB failure")
 
@@ -319,6 +324,7 @@ def test_get_biometric_analytics_success(client, db_session):
     json_data = response.json()
     assert json_data["total"] == 1
     assert all(start <= item["hour_start"] <= end for item in json_data["data"])
+
 
 def test_get_biometric_analytics_patient_not_found(client):
     response = client.get("/biometrics/999999/analytics")

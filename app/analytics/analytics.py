@@ -12,6 +12,7 @@ DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://user:pass@db:5432/my
 engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 
+
 def get_basic_biometrics_query() -> str:
     """
     Generate SQL query to retrieve non-null glucose and weight biometric data
@@ -29,6 +30,7 @@ def get_basic_biometrics_query() -> str:
         FROM biometrics
         WHERE biometric_type IN ('glucose', 'weight') AND value IS NOT NULL
     """
+
 
 def get_blood_pressure_query() -> str:
     """
@@ -58,6 +60,7 @@ def get_blood_pressure_query() -> str:
         WHERE biometric_type = 'blood_pressure' AND diastolic IS NOT NULL
     """
 
+
 def load_biometrics_data() -> pd.DataFrame:
     """
     Load and combine biometric data (glucose, weight, blood pressure) from the database.
@@ -73,6 +76,7 @@ def load_biometrics_data() -> pd.DataFrame:
     combined_df = pd.concat([df_basic, df_bp], ignore_index=True)
     return combined_df
 
+
 def aggregate_hourly(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate biometric data by patient, biometric type, and hour.
@@ -84,17 +88,20 @@ def aggregate_hourly(df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Aggregated hourly metrics including:
                       min_value, max_value, avg_value, and count.
     """
-    agg_df = df.groupby(
-        ['patient_id', 'biometric_type', 'hour_start']
-    ).agg(
-        min_value=('value', 'min'),
-        max_value=('value', 'max'),
-        avg_value=('value', 'mean'),
-        count=('value', 'count')
-    ).reset_index()
+    agg_df = (
+        df.groupby(["patient_id", "biometric_type", "hour_start"])
+        .agg(
+            min_value=("value", "min"),
+            max_value=("value", "max"),
+            avg_value=("value", "mean"),
+            count=("value", "count"),
+        )
+        .reset_index()
+    )
 
-    agg_df['avg_value'] = agg_df['avg_value'].round(2)
+    agg_df["avg_value"] = agg_df["avg_value"].round(2)
     return agg_df
+
 
 def upsert_aggregates(agg_df: pd.DataFrame) -> int:
     """
@@ -110,22 +117,22 @@ def upsert_aggregates(agg_df: pd.DataFrame) -> int:
         RuntimeError: If the upsert operation fails.
     """
     table = PatientBiometricHourlySummary.__table__
-    records: list[Dict] = agg_df.to_dict(orient='records')
+    records: list[Dict] = agg_df.to_dict(orient="records")
 
     stmt = insert(table).values(records)
     update_cols = {
-        'min_value': stmt.excluded.min_value,
-        'max_value': stmt.excluded.max_value,
-        'avg_value': stmt.excluded.avg_value,
-        'count': stmt.excluded.count
+        "min_value": stmt.excluded.min_value,
+        "max_value": stmt.excluded.max_value,
+        "avg_value": stmt.excluded.avg_value,
+        "count": stmt.excluded.count,
     }
 
     with Session() as session:
         try:
             session.execute(
                 stmt.on_conflict_do_update(
-                    index_elements=['patient_id', 'biometric_type', 'hour_start'],
-                    set_=update_cols
+                    index_elements=["patient_id", "biometric_type", "hour_start"],
+                    set_=update_cols,
                 )
             )
             session.commit()
@@ -133,6 +140,7 @@ def upsert_aggregates(agg_df: pd.DataFrame) -> int:
         except SQLAlchemyError as e:
             session.rollback()
             raise RuntimeError(f"Upsert failed: {e}")
+
 
 def analytics_aggregate_biometrics() -> None:
     """
@@ -152,6 +160,7 @@ def analytics_aggregate_biometrics() -> None:
     row_count = upsert_aggregates(agg_df)
 
     print(f"Aggregated and upserted {row_count} rows.")
+
 
 if __name__ == "__main__":
     analytics_aggregate_biometrics()

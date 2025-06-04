@@ -15,14 +15,14 @@ router = APIRouter(tags=["biometrics"])
     "/{patient_id}",
     response_model=biometric_schema.BiometricPaginated,
     summary="List biometrics for a patient",
-    response_description="Paginated biometric data for the specified patient"
+    response_description="Paginated biometric data for the specified patient",
 )
 def list_biometrics(
     patient_id: int = Path(..., description="ID of the patient"),
     type: str | None = Query(None, description="Optional filter by biometric type"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(10, ge=1, description="Maximum number of records to return"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Retrieve a paginated list of biometrics for a specific patient.
@@ -36,12 +36,10 @@ def list_biometrics(
     if not patient:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Patient {patient_id} not found"
+            detail=f"Patient {patient_id} not found",
         )
 
-    query = db.query(models.Biometric).filter(
-        models.Biometric.patient_id == patient_id
-    )
+    query = db.query(models.Biometric).filter(models.Biometric.patient_id == patient_id)
 
     if type:
         query = query.filter(models.Biometric.biometric_type == type.lower())
@@ -49,17 +47,12 @@ def list_biometrics(
     total = query.count()
     results = (
         query.order_by(models.Biometric.timestamp.desc())
-             .offset(skip)
-             .limit(limit)
-             .all()
+        .offset(skip)
+        .limit(limit)
+        .all()
     )
 
-    return {
-        "data": results,
-        "total": total,
-        "skip": skip,
-        "limit": limit
-    }
+    return {"data": results, "total": total, "skip": skip, "limit": limit}
 
 
 @router.post(
@@ -77,7 +70,7 @@ def list_biometrics(
 def upsert_biometric(
     patient_id: int = Path(..., description="ID of the patient"),
     data: biometric_schema.BiometricUpsert = ...,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Create or update a biometric record for the specified patient.
@@ -92,7 +85,7 @@ def upsert_biometric(
     if not db.query(models.Patient).get(patient_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Patient {patient_id} not found"
+            detail=f"Patient {patient_id} not found",
         )
 
     upsert_data = data.dict()
@@ -103,7 +96,7 @@ def upsert_biometric(
         if not all([data.systolic, data.diastolic]):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Both systolic and diastolic are required for blood pressure"
+                detail="Both systolic and diastolic are required for blood pressure",
             )
         upsert_data["value"] = None
     else:
@@ -112,24 +105,27 @@ def upsert_biometric(
     # Perform upsert
     stmt = insert(models.Biometric).values(**upsert_data)
     stmt = stmt.on_conflict_do_update(
-        index_elements=["patient_id", "biometric_type", "timestamp"],
-        set_=upsert_data
+        index_elements=["patient_id", "biometric_type", "timestamp"], set_=upsert_data
     )
 
     try:
         db.execute(stmt)
         db.commit()
-        record = db.query(models.Biometric).filter(
-            models.Biometric.patient_id == patient_id,
-            models.Biometric.biometric_type == data.biometric_type,
-            models.Biometric.timestamp == data.timestamp
-        ).first()
+        record = (
+            db.query(models.Biometric)
+            .filter(
+                models.Biometric.patient_id == patient_id,
+                models.Biometric.biometric_type == data.biometric_type,
+                models.Biometric.timestamp == data.timestamp,
+            )
+            .first()
+        )
         return record
     except exc.SQLAlchemyError as e:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error: {str(e)}"
+            detail=f"Database error: {str(e)}",
         )
 
 
@@ -144,7 +140,9 @@ def upsert_biometric(
     },
 )
 def delete_biometric(
-    biometric_id: int = Path(..., gt=0, description="ID of the biometric record to delete"),
+    biometric_id: int = Path(
+        ..., gt=0, description="ID of the biometric record to delete"
+    ),
     db: Session = Depends(get_db),
 ) -> Response:
     """
@@ -171,6 +169,7 @@ def delete_biometric(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Database error: {str(e)}",
         )
+
 
 @router.get(
     "/{patient_id}/analytics",
@@ -210,27 +209,37 @@ def get_biometric_analytics(
     """
     # Verify patient exists
     if not db.query(models.Patient).get(patient_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found"
+        )
 
     query = db.query(models.PatientBiometricHourlySummary).filter(
         models.PatientBiometricHourlySummary.patient_id == patient_id
     )
 
     if metric:
-        query = query.filter(models.PatientBiometricHourlySummary.biometric_type == metric)
+        query = query.filter(
+            models.PatientBiometricHourlySummary.biometric_type == metric
+        )
 
     if start_date:
-        query = query.filter(models.PatientBiometricHourlySummary.hour_start >= start_date)
+        query = query.filter(
+            models.PatientBiometricHourlySummary.hour_start >= start_date
+        )
 
     if end_date:
-        query = query.filter(models.PatientBiometricHourlySummary.hour_start <= end_date)
+        query = query.filter(
+            models.PatientBiometricHourlySummary.hour_start <= end_date
+        )
 
     total = query.count()
 
-    results = query.order_by(models.PatientBiometricHourlySummary.hour_start.desc()) \
-                   .offset(skip) \
-                   .limit(limit) \
-                   .all()
+    results = (
+        query.order_by(models.PatientBiometricHourlySummary.hour_start.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
     return {
         "data": results,

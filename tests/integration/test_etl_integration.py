@@ -10,32 +10,36 @@ from app.etl.run_etl import (
     validate_biometric_chunk,
     FILE_PREFIX,
     FILE_EXT,
-    upsert_patients
+    upsert_patients,
 )
 
 
 # ---- Test Data Setup ----
 
+
 @pytest.fixture
 def test_patients_file(tmp_path):
     """Create a temporary patients.json file for testing"""
-    data = [{
-        "name": "Test User",
-        "email": "test@example.com",
-        "dob": "1980-01-01",
-        "gender": "Male",
-        "address": "123 Test St",
-        "phone": "555-1234",
-        "sex": "M"
-    }, {
-        "name": "Invalid User",
-        "email": "invalid@example.com",
-        "dob": "3000-01-01",  # Invalid future date
-        "gender": "Unknown",
-        "address": "456 Invalid St",
-        "phone": "555-5678",
-        "sex": "U"
-    }]
+    data = [
+        {
+            "name": "Test User",
+            "email": "test@example.com",
+            "dob": "1980-01-01",
+            "gender": "Male",
+            "address": "123 Test St",
+            "phone": "555-1234",
+            "sex": "M",
+        },
+        {
+            "name": "Invalid User",
+            "email": "invalid@example.com",
+            "dob": "3000-01-01",  # Invalid future date
+            "gender": "Unknown",
+            "address": "456 Invalid St",
+            "phone": "555-5678",
+            "sex": "U",
+        },
+    ]
 
     file_path = tmp_path / "patients.json"
     pd.DataFrame(data).to_json(file_path, orient="records")
@@ -46,11 +50,19 @@ def test_patients_file(tmp_path):
 def test_biometrics_file(tmp_path):
     """Create a temporary biometrics CSV file for testing"""
     data = {
-        "patient_email": ["test@example.com", "test@example.com", "nonexistent@example.com"],
+        "patient_email": [
+            "test@example.com",
+            "test@example.com",
+            "nonexistent@example.com",
+        ],
         "biometric_type": ["glucose", "blood_pressure", "weight"],
         "value": ["100", "120/80", "150"],
-        "timestamp": ["2023-01-01T00:00:00", "2023-01-01T01:00:00", "2023-01-01T02:00:00"],
-        "unit": ["mg/dL", "mmHg", "lbs"]
+        "timestamp": [
+            "2023-01-01T00:00:00",
+            "2023-01-01T01:00:00",
+            "2023-01-01T02:00:00",
+        ],
+        "unit": ["mg/dL", "mmHg", "lbs"],
     }
 
     # Create the biometrics directory
@@ -66,6 +78,7 @@ def test_biometrics_file(tmp_path):
 
 # ---- Patient ETL Tests ----
 
+
 def test_load_patient_data(test_patients_file):
     """Test loading patient data from JSON file"""
     df = load_patient_data(test_patients_file)
@@ -76,16 +89,18 @@ def test_load_patient_data(test_patients_file):
 
 # ---- Biometric ETL Tests ----
 
+
 def test_get_simulated_files(test_biometrics_file, monkeypatch):
     """Test finding biometric files"""
     # Override the BIOMETRICS_DIR to only include our test file
     test_dir = os.path.dirname(test_biometrics_file)
-    monkeypatch.setattr('app.etl.run_etl.BIOMETRICS_DIR', test_dir)
+    monkeypatch.setattr("app.etl.run_etl.BIOMETRICS_DIR", test_dir)
 
     files = get_simulated_files()
     assert len(files) == 1
     assert os.path.basename(files[0]).startswith(FILE_PREFIX)
     assert files[0].endswith(FILE_EXT)
+
 
 def test_read_biometric_chunks(test_biometrics_file):
     """Test reading biometric data in chunks"""
@@ -114,15 +129,17 @@ def test_validate_biometric_chunk(test_biometrics_file):
 
 def test_upsert_patients(db_session):
     """Test patient upsert functionality"""
-    test_records = [{
-        "name": "Test User",
-        "email": "test@example.com",
-        "dob": "1980-01-01",
-        "gender": "Male",
-        "address": "123 Test St",
-        "phone": "555-1234",
-        "sex": "M"
-    }]
+    test_records = [
+        {
+            "name": "Test User",
+            "email": "test@example.com",
+            "dob": "1980-01-01",
+            "gender": "Male",
+            "address": "123 Test St",
+            "phone": "555-1234",
+            "sex": "M",
+        }
+    ]
 
     # First insert
     upsert_patients(db_session, test_records)

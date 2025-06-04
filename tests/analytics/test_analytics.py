@@ -1,19 +1,27 @@
 import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock
-from app.analytics.analytics import analytics_aggregate_biometrics, get_basic_biometrics_query, get_blood_pressure_query, aggregate_hourly, load_biometrics_data, upsert_aggregates
+from app.analytics.analytics import (
+    analytics_aggregate_biometrics,
+    get_basic_biometrics_query,
+    get_blood_pressure_query,
+    aggregate_hourly,
+    load_biometrics_data,
+    upsert_aggregates,
+)
 from datetime import datetime
-from app.etl.run_etl import run_etl
 
 
 @pytest.fixture
 def sample_raw_data():
-    return pd.DataFrame({
-        "patient_id": [1, 1, 1],
-        "biometric_type": ["glucose", "glucose", "weight"],
-        "hour_start": [datetime(2023, 1, 1, 0)] * 3,
-        "value": [100.0, 120.0, 70.5],
-    })
+    return pd.DataFrame(
+        {
+            "patient_id": [1, 1, 1],
+            "biometric_type": ["glucose", "glucose", "weight"],
+            "hour_start": [datetime(2023, 1, 1, 0)] * 3,
+            "value": [100.0, 120.0, 70.5],
+        }
+    )
 
 
 def test_get_basic_biometrics_query():
@@ -34,8 +42,13 @@ def test_aggregate_hourly(sample_raw_data):
 
     assert agg.shape[0] == 2  # 2 unique combinations: glucose, weight
     assert set(agg.columns) == {
-        "patient_id", "biometric_type", "hour_start",
-        "min_value", "max_value", "avg_value", "count"
+        "patient_id",
+        "biometric_type",
+        "hour_start",
+        "min_value",
+        "max_value",
+        "avg_value",
+        "count",
     }
 
     glucose = agg[agg["biometric_type"] == "glucose"].iloc[0]
@@ -47,8 +60,6 @@ def test_aggregate_hourly(sample_raw_data):
     weight = agg[agg["biometric_type"] == "weight"].iloc[0]
     assert weight["avg_value"] == 70.5
 
-
-from unittest.mock import patch
 
 @patch("app.analytics.analytics.engine")
 @patch("pandas.read_sql")
@@ -77,7 +88,9 @@ def test_upsert_aggregates(mock_model, mock_session_class, sample_raw_data):
 
 @patch("app.analytics.analytics.load_biometrics_data")
 @patch("app.analytics.analytics.upsert_aggregates")
-def test_analytics_aggregate_biometrics_success(mock_upsert, mock_load, sample_raw_data, capsys):
+def test_analytics_aggregate_biometrics_success(
+    mock_upsert, mock_load, sample_raw_data, capsys
+):
     mock_load.return_value = sample_raw_data
     mock_upsert.return_value = 2
 

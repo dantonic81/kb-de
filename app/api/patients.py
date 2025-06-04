@@ -6,11 +6,14 @@ from app.schemas import patient as patient_schema
 
 router = APIRouter()
 
+
 @router.get("/", response_model=list[patient_schema.PatientOut])
 def list_patients(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(10, ge=1, le=100, description="Maximum number of records to return"),
-    db: Session = Depends(get_db)
+    limit: int = Query(
+        10, ge=1, le=100, description="Maximum number of records to return"
+    ),
+    db: Session = Depends(get_db),
 ):
     """
     Retrieve a paginated list of patients.

@@ -14,8 +14,7 @@ from app.db.models import Patient, Biometric, BiometricTrend
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -25,16 +24,13 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
 # Analysis parameters - configurable if needed
-TREND_WINDOW = timedelta(hours=5) # 30 days for production
+TREND_WINDOW = timedelta(hours=5)  # 30 days for production
 MIN_DATA_POINTS = 2  # 5 for production
 
+
 class TrendAnalyzer:
-    BIOMETRIC_TYPES = ['glucose', 'weight', 'blood_pressure']
-    STABILITY_THRESHOLDS = {
-        'glucose': 0.1,
-        'weight': 0.03,
-        'blood_pressure': 0.07
-    }
+    BIOMETRIC_TYPES = ["glucose", "weight", "blood_pressure"]
+    STABILITY_THRESHOLDS = {"glucose": 0.1, "weight": 0.03, "blood_pressure": 0.07}
 
     def __init__(self):
         pass  # No persistent session; use context manager
@@ -47,7 +43,9 @@ class TrendAnalyzer:
                 try:
                     self.analyze_patient_trend(patient.id, biometric_type)
                 except Exception:
-                    logger.exception(f"Failed analyzing patient {patient.id} biometric {biometric_type}")
+                    logger.exception(
+                        f"Failed analyzing patient {patient.id} biometric {biometric_type}"
+                    )
         logger.info("Completed trend analysis for all patients")
 
     def _get_patients(self, batch_size: int = 100) -> Generator[Patient, None, None]:
@@ -66,12 +64,16 @@ class TrendAnalyzer:
         with SessionLocal() as session:
             measurements = self._get_measurements(session, patient_id, biometric_type)
             if len(measurements) < MIN_DATA_POINTS:
-                logger.info(f"Insufficient data for patient {patient_id} biometric {biometric_type}")
-                self._store_trend(session, patient_id, biometric_type, 'insufficient_data')
+                logger.info(
+                    f"Insufficient data for patient {patient_id} biometric {biometric_type}"
+                )
+                self._store_trend(
+                    session, patient_id, biometric_type, "insufficient_data"
+                )
                 return
 
             # Extract values and timestamps
-            if biometric_type == 'blood_pressure':
+            if biometric_type == "blood_pressure":
                 values = [(m.systolic + m.diastolic) / 2 for m in measurements]
             else:
                 values = [m.value for m in measurements]
@@ -85,10 +87,10 @@ class TrendAnalyzer:
             seasonal = self._seasonal_decomposition(timestamps, values)
 
             analysis_results = {
-                'linear_trend': linear_trend,
-                'percentage_change': percentage_change,
-                'volatility': volatility,
-                'seasonal_decomposition': seasonal
+                "linear_trend": linear_trend,
+                "percentage_change": percentage_change,
+                "volatility": volatility,
+                "seasonal_decomposition": seasonal,
             }
 
             trend = self._classify_trend(biometric_type, analysis_results)
@@ -100,16 +102,25 @@ class TrendAnalyzer:
                 f"Change: {percentage_change:.1f}%)"
             )
 
-    def _get_measurements(self, session: Session, patient_id: int, biometric_type: str) -> List[Biometric]:
+    def _get_measurements(
+        self, session: Session, patient_id: int, biometric_type: str
+    ) -> List[Biometric]:
         """Retrieve measurements within the analysis window."""
         cutoff = datetime.now(timezone.utc) - TREND_WINDOW
-        return session.query(Biometric).filter(
-            Biometric.patient_id == patient_id,
-            Biometric.biometric_type == biometric_type,
-            Biometric.timestamp >= cutoff
-        ).order_by(Biometric.timestamp.asc()).all()
+        return (
+            session.query(Biometric)
+            .filter(
+                Biometric.patient_id == patient_id,
+                Biometric.biometric_type == biometric_type,
+                Biometric.timestamp >= cutoff,
+            )
+            .order_by(Biometric.timestamp.asc())
+            .all()
+        )
 
-    def _linear_trend_analysis(self, timestamps: List[datetime], values: List[float]) -> Dict[str, float]:
+    def _linear_trend_analysis(
+        self, timestamps: List[datetime], values: List[float]
+    ) -> Dict[str, float]:
         """Perform linear regression on the time series data."""
         x = np.array([ts.timestamp() for ts in timestamps])
         y = np.array(values)
@@ -119,13 +130,11 @@ class TrendAnalyzer:
         slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
         r_squared = self._calculate_r_squared(x_norm, y, slope, intercept)
 
-        return {
-            'slope': slope,
-            'intercept': intercept,
-            'r_squared': r_squared
-        }
+        return {"slope": slope, "intercept": intercept, "r_squared": r_squared}
 
-    def _calculate_r_squared(self, x: np.ndarray, y: np.ndarray, slope: float, intercept: float) -> float:
+    def _calculate_r_squared(
+        self, x: np.ndarray, y: np.ndarray, slope: float, intercept: float
+    ) -> float:
         """Calculate coefficient of determination (R^2)."""
         y_pred = slope * x + intercept
         ss_res = np.sum((y - y_pred) ** 2)
@@ -145,24 +154,34 @@ class TrendAnalyzer:
             return 0.0
         return np.std(values) / mean_val
 
-    def _seasonal_decomposition(self, timestamps: List[datetime], values: List[float]) -> Optional[Dict[str, float]]:
+    def _seasonal_decomposition(
+        self, timestamps: List[datetime], values: List[float]
+    ) -> Optional[Dict[str, float]]:
         """Perform seasonal decomposition of the time series if possible."""
         try:
             series = pd.Series(values, index=pd.to_datetime(timestamps))
             # Resample to daily frequency, forward fill missing values
-            series = series.asfreq('D').ffill()
+            series = series.asfreq("D").ffill()
 
             series_var = np.var(series)
             if series_var == 0 or len(series) < 8:
                 return None
 
-            decomposition = seasonal_decompose(series, model='additive', period=7)
-            trend_strength = np.var(decomposition.trend) / series_var if np.var(decomposition.trend) > 0 else 0
-            seasonality_strength = np.var(decomposition.seasonal) / series_var if np.var(decomposition.seasonal) > 0 else 0
+            decomposition = seasonal_decompose(series, model="additive", period=7)
+            trend_strength = (
+                np.var(decomposition.trend) / series_var
+                if np.var(decomposition.trend) > 0
+                else 0
+            )
+            seasonality_strength = (
+                np.var(decomposition.seasonal) / series_var
+                if np.var(decomposition.seasonal) > 0
+                else 0
+            )
 
             return {
-                'trend_strength': trend_strength,
-                'seasonality_strength': seasonality_strength
+                "trend_strength": trend_strength,
+                "seasonality_strength": seasonality_strength,
             }
         except Exception as e:
             logger.warning(f"Seasonal decomposition failed: {e}")
@@ -170,33 +189,40 @@ class TrendAnalyzer:
 
     def _classify_trend(self, biometric_type: str, analysis_results: Dict) -> str:
         """Classify the overall trend based on analysis metrics."""
-        linear = analysis_results['linear_trend']
-        pct_change = analysis_results['percentage_change']
-        volatility = analysis_results['volatility']
+        linear = analysis_results["linear_trend"]
+        pct_change = analysis_results["percentage_change"]
+        volatility = analysis_results["volatility"]
 
         threshold = self.STABILITY_THRESHOLDS.get(biometric_type, 0.1)
 
         if volatility > threshold * 2:
-            return 'volatile'
+            return "volatile"
 
-        if abs(linear['slope']) < threshold and abs(pct_change) < threshold * 10:
-            return 'stable'
+        if abs(linear["slope"]) < threshold and abs(pct_change) < threshold * 10:
+            return "stable"
 
-        if (linear['slope'] > 0 and pct_change > 0) or (linear['r_squared'] > 0.7 and linear['slope'] > 0):
-            return 'increasing'
+        if (linear["slope"] > 0 and pct_change > 0) or (
+            linear["r_squared"] > 0.7 and linear["slope"] > 0
+        ):
+            return "increasing"
 
-        if (linear['slope'] < 0 and pct_change < 0) or (linear['r_squared'] > 0.7 and linear['slope'] < 0):
-            return 'decreasing'
+        if (linear["slope"] < 0 and pct_change < 0) or (
+            linear["r_squared"] > 0.7 and linear["slope"] < 0
+        ):
+            return "decreasing"
 
-        return 'stable'
+        return "stable"
 
-    def _store_trend(self, session: Session, patient_id: int, biometric_type: str, trend: str):
+    def _store_trend(
+        self, session: Session, patient_id: int, biometric_type: str, trend: str
+    ):
         """Store or update the trend result in the database."""
         try:
-            record = session.query(BiometricTrend).filter_by(
-                patient_id=patient_id,
-                biometric_type=biometric_type
-            ).one_or_none()
+            record = (
+                session.query(BiometricTrend)
+                .filter_by(patient_id=patient_id, biometric_type=biometric_type)
+                .one_or_none()
+            )
 
             now = datetime.now(timezone.utc)
             if record:
@@ -207,12 +233,14 @@ class TrendAnalyzer:
                     patient_id=patient_id,
                     biometric_type=biometric_type,
                     trend=trend,
-                    analyzed_at=now
+                    analyzed_at=now,
                 )
                 session.add(record)
             session.commit()
         except Exception:
-            logger.exception(f"Failed to store trend for patient {patient_id}, biometric {biometric_type}")
+            logger.exception(
+                f"Failed to store trend for patient {patient_id}, biometric {biometric_type}"
+            )
             session.rollback()
 
 

@@ -709,9 +709,16 @@ This opens http://localhost:3000 in your browser.
 | Pydantic                   | Python library for data validation using type hints      |
 | Outlier                    | Biometric reading outside expected physiological bounds  |
 
+## Other packages used (not listed in requirements)
+
+- Black
+- Flake8
 
 
 ## 🙏 Acknowledgments
 
 Special thanks to:
 - Eric, for providing the project requirements and valuable feedback.
+
+---
+_Developed and tested on Ubuntu 24.10 (2025)_

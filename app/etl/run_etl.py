@@ -17,15 +17,16 @@ from app.schemas.biometric_schema import BiometricSchema
 
 # Logging setup
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # Constants
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@db:5432/mydb")
-BIOMETRICS_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "biometrics_simulated"))
+BIOMETRICS_DIR = os.path.abspath(
+    os.path.join(BASE_DIR, "..", "..", "biometrics_simulated")
+)
 PATIENTS_FILE = os.path.join(BASE_DIR, "..", "..", "data", "patients.json")
 FILE_PREFIX = "biometrics_"
 FILE_EXT = ".csv"
@@ -34,18 +35,10 @@ CHUNKSIZE = 1000
 BIOMETRIC_RANGES = {
     "glucose": (70, 200),
     "weight": (30, 200),
-    "blood_pressure": {
-        "systolic": (90, 140),
-        "diastolic": (60, 90)
-    }
+    "blood_pressure": {"systolic": (90, 140), "diastolic": (60, 90)},
 }
 
-UNIT_CONVERSIONS = {
-    "weight": {
-        "lbs": lambda x: x * 0.453592,
-        "kg": lambda x: x
-    }
-}
+UNIT_CONVERSIONS = {"weight": {"lbs": lambda x: x * 0.453592, "kg": lambda x: x}}
 
 # ---- Database ----
 
@@ -101,6 +94,7 @@ def get_db_session() -> Iterator[Any]:
 
 # ---- Utility functions ----
 
+
 def normalize_units(value: float, unit: str, metric_type: str) -> float:
     """Normalize units to standard values.
 
@@ -132,11 +126,17 @@ def validate_biometric_ranges(row: Dict[str, Any]) -> List[str]:
     if metric_type == "blood_pressure":
         try:
             systolic, diastolic = map(int, row["value"].split("/"))
-            if not (BIOMETRIC_RANGES["blood_pressure"]["systolic"][0] <= systolic <=
-                    BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]):
+            if not (
+                BIOMETRIC_RANGES["blood_pressure"]["systolic"][0]
+                <= systolic
+                <= BIOMETRIC_RANGES["blood_pressure"]["systolic"][1]
+            ):
                 errors.append(f"Systolic BP {systolic} out of range")
-            if not (BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0] <= diastolic <=
-                    BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]):
+            if not (
+                BIOMETRIC_RANGES["blood_pressure"]["diastolic"][0]
+                <= diastolic
+                <= BIOMETRIC_RANGES["blood_pressure"]["diastolic"][1]
+            ):
                 errors.append(f"Diastolic BP {diastolic} out of range")
         except ValueError:
             errors.append("Invalid blood pressure format")
@@ -153,6 +153,7 @@ def validate_biometric_ranges(row: Dict[str, Any]) -> List[str]:
 
 
 # ---- Patient ETL ----
+
 
 def load_patient_data(filepath: str) -> pd.DataFrame:
     """Load patient data from JSON file.
@@ -248,8 +249,8 @@ def upsert_patients(session: Any, records: List[Dict[str, Any]]) -> None:
                 "gender": stmt.excluded.gender,
                 "address": stmt.excluded.address,
                 "phone": stmt.excluded.phone,
-                "sex": stmt.excluded.sex
-            }
+                "sex": stmt.excluded.sex,
+            },
         )
         session.execute(stmt)
         logger.info(f"Upserted {len(records)} patients")
@@ -274,6 +275,7 @@ def save_invalid_patients(invalid_rows: List[Dict[str, Any]]) -> None:
 
 # ---- Biometric ETL ----
 
+
 def get_simulated_files() -> List[str]:
     """Get list of biometric data files sorted by timestamp.
 
@@ -281,10 +283,11 @@ def get_simulated_files() -> List[str]:
         List of file paths sorted by their embedded timestamp
     """
     files = glob.glob(os.path.join(BIOMETRICS_DIR, f"{FILE_PREFIX}*{FILE_EXT}"))
-    files.sort(key=lambda x: datetime.strptime(
-        os.path.basename(x)[len(FILE_PREFIX):-len(FILE_EXT)],
-        "%Y-%m-%dT%H-%M"
-    ))
+    files.sort(
+        key=lambda x: datetime.strptime(
+            os.path.basename(x)[len(FILE_PREFIX): -len(FILE_EXT)], "%Y-%m-%dT%H-%M"
+        )
+    )
     return files
 
 
@@ -303,7 +306,7 @@ def read_biometric_chunks(csv_file: str) -> Tuple[Iterator[pd.DataFrame], List[A
             csv_file,
             chunksize=CHUNKSIZE,
             on_bad_lines=lambda bad: invalid_rows.append(bad) or None,
-            engine='python'
+            engine="python",
         )
         return chunks, invalid_rows
     except Exception as e:
@@ -311,7 +314,9 @@ def read_biometric_chunks(csv_file: str) -> Tuple[Iterator[pd.DataFrame], List[A
         return [], []
 
 
-def validate_biometric_chunk(chunk: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
+def validate_biometric_chunk(
+    chunk: pd.DataFrame,
+) -> Tuple[pd.DataFrame, List[Dict[str, Any]]]:
     """Validate a chunk of biometric data.
 
     Args:
@@ -324,7 +329,7 @@ def validate_biometric_chunk(chunk: pd.DataFrame) -> Tuple[pd.DataFrame, List[Di
         BiometricSchema.validate(chunk, lazy=True)
         return chunk, []
     except pa.errors.SchemaErrors as err:
-        invalid_indices = err.failure_cases['index'].dropna()
+        invalid_indices = err.failure_cases["index"].dropna()
         valid_idx = set(chunk.index) - set(invalid_indices)
         valid_chunk = chunk.loc[list(valid_idx)]
         invalid_rows = chunk.loc[invalid_indices].to_dict("records")
@@ -341,12 +346,15 @@ def get_patients_map(session: Any, emails: List[str]) -> Dict[str, int]:
     Returns:
         Dictionary mapping emails to patient IDs
     """
-    patients = session.query(Patient).filter(Patient.email.in_(emails)).with_for_update().all()
+    patients = (
+        session.query(Patient).filter(Patient.email.in_(emails)).with_for_update().all()
+    )
     return {p.email: p.id for p in patients}
 
 
-def process_biometric_records(chunk: pd.DataFrame, patients_map: Dict[str, int]) -> Tuple[
-    List[Dict[str, Any]], List[Dict[str, Any]]]:
+def process_biometric_records(
+    chunk: pd.DataFrame, patients_map: Dict[str, int]
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Process and validate biometric records from a chunk.
 
     Args:
@@ -374,12 +382,14 @@ def process_biometric_records(chunk: pd.DataFrame, patients_map: Dict[str, int])
                 "patient_id": patients_map[row["patient_email"]],
                 "biometric_type": row["biometric_type"],
                 "timestamp": row["timestamp"],
-                "unit": row["unit"]
+                "unit": row["unit"],
             }
 
             if row["biometric_type"] == "blood_pressure":
                 systolic, diastolic = map(int, row["value"].split("/"))
-                rec.update({"systolic": systolic, "diastolic": diastolic, "value": None})
+                rec.update(
+                    {"systolic": systolic, "diastolic": diastolic, "value": None}
+                )
             else:
                 value = float(row["value"])
                 if row["biometric_type"] == "weight":
@@ -412,13 +422,13 @@ def upsert_biometric_records(session: Any, records: List[Dict[str, Any]]) -> Non
             try:
                 stmt = pg_insert(Biometric).values(rec)
                 stmt = stmt.on_conflict_do_update(
-                    index_elements=['patient_id', 'biometric_type', 'timestamp'],
+                    index_elements=["patient_id", "biometric_type", "timestamp"],
                     set_={
                         "value": stmt.excluded.value,
                         "systolic": stmt.excluded.systolic,
                         "diastolic": stmt.excluded.diastolic,
-                        "unit": stmt.excluded.unit
-                    }
+                        "unit": stmt.excluded.unit,
+                    },
                 )
                 session.execute(stmt)
                 session.commit()  # This is needed per record here to not lose changes
@@ -466,6 +476,7 @@ def process_biometrics() -> None:
 
 
 # ---- Main ETL ----
+
 
 def run_etl() -> None:
     """Run the complete ETL process for patients and biometrics."""

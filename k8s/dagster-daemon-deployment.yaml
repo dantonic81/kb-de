@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dagster-daemon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dagster-daemon
+  template:
+    metadata:
+      labels:
+        app: dagster-daemon
+    spec:
+      containers:
+        - name: dagster-daemon
+          image: dagster:latest
+          imagePullPolicy: Never
+          command: ["sh", "-c", "dagster-daemon run -w /app/dagster_home/workspace.yaml"]
+          env:
+            - name: DAGSTER_HOME
+              value: /app/dagster_home
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+

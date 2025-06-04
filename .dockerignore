@@ -25,3 +25,4 @@ dagster_home/storage/
 biometrics_simulated
 Makefile
 Screenshots/
+k8s/

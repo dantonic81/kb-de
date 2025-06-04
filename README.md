@@ -30,14 +30,23 @@
 - [API Endpoints](#api-endpoints)
 - [API Schema and Validation Overview](#api-schema-and-validation-overview)
 - [API Documentation](#api-documentation)
+- [Functional and Non-Functional Requirements](#-functional-and-non-functional-requirements)
+  - [Functional Requirements](#functional-requirements)
+  - [Non-Functional Requirements](#non-functional-requirements)
 - [Key Design Decisions](#key-design-decisions)
 - [Future Improvements](#future-improvements)
 - [Limitations](#limitations)
+- [Bonus Feature - Kubernetes Orchestration](#bonus-feature---kubernetes-orchestration)
+  - [Stack Components](#-stack-components)
+  - [Prerequisites](#-prerequisites)
+  - [Usage Instructions](#-usage-instructions)
 
 
 ## Introduction
 
 This project demonstrates a backend data integration system designed to ingest, process, and serve biometric health data from healthcare providers and connected devices. It simulates a core component of a patient care platform, focusing on data quality, accessibility, and analytical insight.
+
+Built as a full-stack prototype, it showcases backend engineering skills including orchestration (Dagster), validation (Pydantic, Cerberus), API development (FastAPI), and analytics engineering (dbt, Pandas).
 
 **The system is composed of:**
 
@@ -280,7 +289,7 @@ Dagster UI is available at [http://localhost:3000](http://localhost:3000)
 | `trend_analyzer_job`        | Analyzes recent biometric patterns (e.g., increasing, stable, volatile), classifies trends for each patient, and stores them in the biometric_trends table.                           |
 
 
-
+See [`trend_analyzer_job`](app/analytics/trend_analyzer.py) for implementation of this bonus feature.
 
 ## ETL Pipeline
 
@@ -318,7 +327,7 @@ Both patient and biometric data go through a validation stage before being proce
 
 
 
-## Testing
+## Testing (Bonus Feature)
 
 It's recommended to use a separate **virtual environment** when working with this project. While setting up a virtual environment is outside the scope of this document, once it's activated, install the development dependencies:
 
@@ -589,5 +598,77 @@ ReDoc: http://localhost:8000/redoc
 This project is designed for local development. Deployment to cloud infrastructure (e.g., AWS, GCP) is out of scope but could be integrated with Terraform and CI pipelines.
 
 
+## Bonus Feature - Kubernetes Orchestration
 
+
+This feature includes Kubernetes manifests under the `k8s/` directory to orchestrate the application stack locally using Minikube.
+
+### 📦 Stack Components
+
+- FastAPI application
+
+- PostgreSQL database
+
+- Dagster orchestration UI
+
+- CronJob for biometric analytics
+
+### ✅ Prerequisites
+
+- [Minikube](https://minikube.sigs.k8s.io/docs/start/?arch=%2Fwindows%2Fx86-64%2Fstable%2F.exe+download) installed and running locally
+
+- [Docker](https://docs.docker.com/get-started/get-docker/) installed and accessible from the terminal
+
+- Start Minikube (if not already running):
+
+      minikube start
+
+### 🛠 Usage Instructions
+
+💡 Tip: Before running the Kubernetes setup, shut down any Docker Compose services to avoid conflicts:
+
+
+    docker compose down
+
+
+1. Navigate to the Kubernetes directory:
+
+       cd k8s
+
+2. Build Docker images inside the Minikube environment:
+
+       make build
+
+3. Deploy all Kubernetes resources:
+
+       make deploy
+
+4. Access the Dagster UI:
+
+       make open-dagster
+
+This opens http://localhost:3000 in your browser.
+
+
+5. Access the FastAPI Swagger UI:
+
+        make open-swagger
+
+6. Clean up all Kubernetes resources:
+
+        make clean
+
+7. (Optional) Delete the Minikube cluster entirely:
+
+        minikube delete
+
+
+
+
+
+
+
+
+
+<!-- link label -->
 [diagram]: Screenshots/Diagram.PNG "System Architecture Diagram"

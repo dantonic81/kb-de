@@ -1,7 +1,14 @@
+![Build](https://img.shields.io/badge/build-passing-brightgreen)
+![Docker](https://img.shields.io/badge/docker-ready-blue)
+![Dagster](https://img.shields.io/badge/orchestrator-dagster-purple)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
 # 🧬 Data Platform Project
+
 
 ## Table of Contents
 
+- [TL;DR](#-tldr)
 - [Introduction](#introduction)
 - [Architecture Overview](#-architecture-overview)
   - [System Architecture Diagram](#system-architecture)
@@ -40,6 +47,19 @@
   - [Stack Components](#-stack-components)
   - [Prerequisites](#-prerequisites)
   - [Usage Instructions](#-usage-instructions)
+- [Glossary](#-glossary)
+- [Acknowledgments](#-acknowledgments)
+
+
+## ⚡ TL;DR
+
+A production-grade prototype of a health data backend. It includes:
+- ETL pipelines with validation and transformation
+- Analytics and trend detection
+- FastAPI endpoints for querying biometrics and patients
+- Dagster for orchestration and observability
+- Dockerized and easy to spin up
+- Kubernetes deployment as an option
 
 
 ## Introduction
@@ -569,27 +589,33 @@ ReDoc: http://localhost:8000/redoc
 
 ## Future Improvements
 
-- **Stream Processing** — Introduce Kafka/Flink for real-time data ingestion and processing.
+- **Stream Processing with Kafka/Flink** — for real-time data ingestion and processing to reduce latency adn support event-driven workflows. This will allow for timely anomaly detection and dynamic dashboards.
 
-- **GraphQL API** — Add flexible, client-driven data querying alongside REST.
+- **GraphQL API Layer** — Provide more flexible, client-driven queries to reduce over-fetching and under-fetching of data, improving client performance and usability.
 
-- **Anomaly Detection** — Leverage ML models to flag unusual biometric patterns more accurately.
+- **Anomaly Detection using ML** — Integrate machine learning models to automatically detect outliers in biometric data, improving clinical insights and alerting.
 
-- **Support for Multi-tenant Architecture** - Enable isolated data and configurations for multiple clients within a single deployment.
+- **Multi-Tenant Support** — Architect the system to isolate data and configurations per client, enabling SaaS deployments and ensuring data privacy.
 
-- **Integration with Visualization Tools** - Connect with analytics platforms like Metabase or Superset for enhanced data exploration and dashboarding.
+- **Integration with Visualization Tools (Metabase, Superset, Grafana)** — Provide rich, interactive dashboards for business users and clinicians, enhancing data exploration without coding.
 
+- **CI/CD Pipelines for Automated Testing and Deployment** — Ensure rapid and safe iteration cycles with automated tests, container builds, and deployment to Kubernetes or cloud environments.
 
 ## Limitations
 
-- No authentication/authorization on API endpoints (intended for local demo).
-- Not tested for production load or concurrent writes.
-- Not horizontally scalable at current stage
-- Assumes synthetic data
-- Limited real-world validation
-- Data persistence is local unless configured otherwise.
-- Scheduler assumes system time is synced across services.
+- **No Authentication or Authorization** — The API is unsecured, suitable only for local demos. Production deployments require integration with identity providers and RBAC.
 
+- **Unproven Production Scalability** — The system has not been load-tested for concurrent writes or high volume patient data, which may cause performance degradation or failures.
+
+- **Lack of Horizontal Scalability** — Current architecture is monolithic and may not scale well horizontally; Kubernetes deployment is a step toward microservices and better scaling.
+
+- **Static Schema Assumption** — Schema changes require manual migration; no support for dynamic schema evolution or versioning yet.
+
+- **Synthetic Data Only** — The system currently uses mock data; real-world validation with actual patient data is necessary to ensure accuracy and compliance.
+
+- **Local Data Persistence by Default** — Data is stored locally unless explicitly configured to use external storage, limiting durability and fault tolerance.
+
+- **Scheduler Assumes System Time Sync** — Timing-based orchestrations depend on synchronized system clocks across services; lack of NTP or time drift handling could cause scheduling errors.
 
 
 
@@ -672,3 +698,20 @@ This opens http://localhost:3000 in your browser.
 
 <!-- link label -->
 [diagram]: Screenshots/Diagram.PNG "System Architecture Diagram"
+
+
+## 📘 Glossary
+
+| Term                        | Description                                              |
+|-----------------------------|----------------------------------------------------------|
+| ETL                        | Extract, Transform, Load – classic data pipeline pattern |
+| Dagster                    | Data orchestrator tool with modern UI and scheduling     |
+| Pydantic                   | Python library for data validation using type hints      |
+| Outlier                    | Biometric reading outside expected physiological bounds  |
+
+
+
+## 🙏 Acknowledgments
+
+Special thanks to:
+- Eric, for providing the project requirements and valuable feedback.
